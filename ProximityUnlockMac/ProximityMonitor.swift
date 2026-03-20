@@ -5,7 +5,7 @@ enum ProximityState {
     case near, far, unknown
 }
 
-/// Coordinates BLE scanning, proximity state, and lock/unlock actions.
+/// Coordinates BLE scanning, proximity state, unlock confirmation, and lock/unlock actions.
 @MainActor
 class ProximityMonitor: ObservableObject {
     @Published var proximityState: ProximityState = .unknown
@@ -14,8 +14,11 @@ class ProximityMonitor: ObservableObject {
     @Published var isEnabled: Bool = true {
         didSet { UserDefaults.standard.set(isEnabled, forKey: "isEnabled") }
     }
+    @Published var requireConfirmation: Bool = true {
+        didSet { UserDefaults.standard.set(requireConfirmation, forKey: "requireConfirmation") }
+    }
+    @Published var awaitingConfirmation: Bool = false
 
-    // RSSI thresholds (dBm). More negative = farther away.
     @Published var nearThreshold: Int = -70 {
         didSet { UserDefaults.standard.set(nearThreshold, forKey: "nearThreshold") }
     }
@@ -23,17 +26,22 @@ class ProximityMonitor: ObservableObject {
         didSet { UserDefaults.standard.set(farThreshold, forKey: "farThreshold") }
     }
 
-    private let unlockManager = UnlockManager()
-    private var bleManager: BLECentralManager!
+    // Dependencies — injectable for testing.
+    private(set) var bleManager: (any BLECentralManaging)!
+    private let unlockManager: any UnlockManaging
 
-    // Hysteresis: RSSI must be consistently near/far for this many seconds before acting.
-    private let hysteresisSeconds: TimeInterval = 5.0
+    // Hysteresis and confirmation timeout — injectable for fast tests.
+    let hysteresisSeconds: TimeInterval
+    let confirmationTimeout: TimeInterval
+
     private var nearTimer: Timer?
     private var farTimer: Timer?
+    private var confirmationTimer: Timer?
 
     var statusDescription: String {
         if !isEnabled { return "ProximityUnlock: Disabled" }
         if !isPhoneDetected { return "Scanning for iPhone..." }
+        if awaitingConfirmation { return "Waiting for iPhone confirmation..." }
         switch proximityState {
         case .near:    return "iPhone nearby"
         case .far:     return "iPhone away"
@@ -41,19 +49,13 @@ class ProximityMonitor: ObservableObject {
         }
     }
 
-    init() {
-        // Restore persisted settings
-        if UserDefaults.standard.object(forKey: "isEnabled") != nil {
-            isEnabled = UserDefaults.standard.bool(forKey: "isEnabled")
-        }
-        if UserDefaults.standard.object(forKey: "nearThreshold") != nil {
-            nearThreshold = UserDefaults.standard.integer(forKey: "nearThreshold")
-        }
-        if UserDefaults.standard.object(forKey: "farThreshold") != nil {
-            farThreshold = UserDefaults.standard.integer(forKey: "farThreshold")
-        }
+    // MARK: - Init
 
-        bleManager = BLECentralManager(
+    /// Production init — creates real BLE and Unlock managers.
+    convenience init() {
+        self.init(unlockManager: UnlockManager())
+        // Phase 2: self is now fully initialized; we can safely capture it in closures.
+        self.bleManager = BLECentralManager(
             onRSSIUpdate: { [weak self] rssi in
                 Task { @MainActor [weak self] in self?.handleRSSI(rssi) }
             },
@@ -65,16 +67,50 @@ class ProximityMonitor: ObservableObject {
                     self?.isPhoneDetected = false
                     self?.proximityState = .unknown
                     self?.cancelPendingTimers()
+                    self?.cancelConfirmationWait()
                 }
+            },
+            onConfirmationReceived: { [weak self] approved in
+                Task { @MainActor [weak self] in self?.handleConfirmationResponse(approved) }
             }
         )
     }
 
-    private func handleRSSI(_ newRSSI: Int) {
+    /// Testable designated init — all dependencies injectable.
+    /// Tests inject a MockBLECentralManager and call handleRSSI/handleConfirmationResponse directly.
+    init(
+        bleManager: (any BLECentralManaging)? = nil,
+        unlockManager: any UnlockManaging,
+        hysteresisSeconds: TimeInterval = 5.0,
+        confirmationTimeout: TimeInterval = 15.0
+    ) {
+        self.unlockManager      = unlockManager
+        self.hysteresisSeconds  = hysteresisSeconds
+        self.confirmationTimeout = confirmationTimeout
+        // bleManager is set to nil here; convenience init overwrites it; tests supply their own.
+        self.bleManager = bleManager
+
+        // Restore persisted settings
+        if UserDefaults.standard.object(forKey: "isEnabled") != nil {
+            isEnabled = UserDefaults.standard.bool(forKey: "isEnabled")
+        }
+        if UserDefaults.standard.object(forKey: "nearThreshold") != nil {
+            nearThreshold = UserDefaults.standard.integer(forKey: "nearThreshold")
+        }
+        if UserDefaults.standard.object(forKey: "farThreshold") != nil {
+            farThreshold = UserDefaults.standard.integer(forKey: "farThreshold")
+        }
+        if UserDefaults.standard.object(forKey: "requireConfirmation") != nil {
+            requireConfirmation = UserDefaults.standard.bool(forKey: "requireConfirmation")
+        }
+    }
+
+    // MARK: - RSSI Handling (internal so tests can call directly)
+
+    func handleRSSI(_ newRSSI: Int) {
         rssi = newRSSI
 
         if newRSSI >= nearThreshold {
-            // Signal is strong enough to be "near"
             farTimer?.invalidate()
             farTimer = nil
             if proximityState != .near && nearTimer == nil {
@@ -83,7 +119,6 @@ class ProximityMonitor: ObservableObject {
                 }
             }
         } else if newRSSI <= farThreshold {
-            // Signal is weak enough to be "far"
             nearTimer?.invalidate()
             nearTimer = nil
             if proximityState != .far && farTimer == nil {
@@ -92,28 +127,68 @@ class ProximityMonitor: ObservableObject {
                 }
             }
         } else {
-            // In the dead zone between thresholds — cancel any pending transitions.
             cancelPendingTimers()
         }
     }
 
-    private func transitionToNear() {
+    // MARK: - Confirmation Response (internal so tests can call directly)
+
+    func handleConfirmationResponse(_ approved: Bool) {
+        confirmationTimer?.invalidate()
+        confirmationTimer = nil
+        awaitingConfirmation = false
+
+        guard approved, isEnabled, unlockManager.isScreenLocked() else { return }
+        unlockManager.unlockScreen()
+    }
+
+    // MARK: - State Transitions (internal for testing)
+
+    func transitionToNear() {
         nearTimer = nil
         guard isEnabled else { return }
         proximityState = .near
-        if unlockManager.isScreenLocked() {
+        guard unlockManager.isScreenLocked() else { return }
+
+        if requireConfirmation {
+            requestUnlockConfirmation()
+        } else {
             unlockManager.unlockScreen()
         }
     }
 
-    private func transitionToFar() {
+    func transitionToFar() {
         farTimer = nil
+        cancelConfirmationWait()
         guard isEnabled else { return }
         proximityState = .far
-        // Screen locking when the phone moves away is opt-in (see SettingsView).
+        bleManager?.writeCommand("lock_event")
         if UserDefaults.standard.bool(forKey: "lockWhenFar") {
             unlockManager.lockScreen()
         }
+    }
+
+    // MARK: - Confirmation Flow
+
+    private func requestUnlockConfirmation() {
+        guard !awaitingConfirmation else { return }
+        awaitingConfirmation = true
+        bleManager?.writeCommand("unlock_request")
+
+        confirmationTimer = Timer.scheduledTimer(
+            withTimeInterval: confirmationTimeout,
+            repeats: false
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.awaitingConfirmation = false
+            }
+        }
+    }
+
+    func cancelConfirmationWait() {
+        confirmationTimer?.invalidate()
+        confirmationTimer = nil
+        awaitingConfirmation = false
     }
 
     private func cancelPendingTimers() {
