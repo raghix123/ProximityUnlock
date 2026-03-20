@@ -12,8 +12,9 @@ enum BLEConstants {
 }
 
 /// Manages CoreBluetooth scanning, RSSI polling, and the unlock-confirmation handshake.
-class BLECentralManager: NSObject {
-    private var central: CBCentralManager!
+class BLECentralManager: NSObject, BLECentralManaging {
+
+    private var central: CBCentralManagerProtocol!
     private var peripheral: CBPeripheral?
     private var rssiTimer: Timer?
     private var lostTimer: Timer?
@@ -23,17 +24,34 @@ class BLECentralManager: NSObject {
     /// Characteristic used to receive confirm/deny responses from the iPhone.
     private var confirmChar: CBCharacteristic?
 
-    // MARK: - Callbacks
+    // MARK: - BLECentralManaging
 
-    let onRSSIUpdate:          (Int) -> Void
-    let onDeviceFound:         () -> Void
-    let onDeviceLost:          () -> Void
-    /// Called when the iPhone responds with "approved" or "denied".
+    let onRSSIUpdate:           (Int) -> Void
+    let onDeviceFound:          () -> Void
+    let onDeviceLost:           () -> Void
     let onConfirmationReceived: (Bool) -> Void
 
     // MARK: - Init
 
+    /// Production init: creates a real CBCentralManager.
+    convenience init(
+        onRSSIUpdate:           @escaping (Int) -> Void,
+        onDeviceFound:          @escaping () -> Void,
+        onDeviceLost:           @escaping () -> Void,
+        onConfirmationReceived: @escaping (Bool) -> Void
+    ) {
+        self.init(
+            centralManager: nil,   // will be created inside designated init
+            onRSSIUpdate: onRSSIUpdate,
+            onDeviceFound: onDeviceFound,
+            onDeviceLost: onDeviceLost,
+            onConfirmationReceived: onConfirmationReceived
+        )
+    }
+
+    /// Designated init: accepts an injectable CBCentralManagerProtocol (real or mock).
     init(
+        centralManager: CBCentralManagerProtocol?,
         onRSSIUpdate:           @escaping (Int) -> Void,
         onDeviceFound:          @escaping () -> Void,
         onDeviceLost:           @escaping () -> Void,
@@ -44,8 +62,12 @@ class BLECentralManager: NSObject {
         self.onDeviceLost           = onDeviceLost
         self.onConfirmationReceived = onConfirmationReceived
         super.init()
-        // nil queue → uses the main queue, keeping delegate calls on main thread.
-        central = CBCentralManager(delegate: self, queue: nil)
+        // If no mock provided, create the real CBCentralManager on the main queue.
+        if let existing = centralManager {
+            self.central = existing
+        } else {
+            self.central = CBCentralManager(delegate: self, queue: nil)
+        }
     }
 
     // MARK: - Scanning / RSSI
@@ -83,14 +105,12 @@ class BLECentralManager: NSObject {
 
     // MARK: - Characteristics
 
-    /// Send a command string to the iPhone via the unlock-request characteristic.
     func writeCommand(_ command: String) {
         guard let peripheral, let char = requestChar else { return }
         let data = Data(command.utf8)
         peripheral.writeValue(data, for: char, type: .withResponse)
     }
 
-    /// Subscribe to confirmation notifications from the iPhone.
     private func subscribeToConfirmations() {
         guard let peripheral, let char = confirmChar else { return }
         peripheral.setNotifyValue(true, for: char)
@@ -115,13 +135,12 @@ extension BLECentralManager: CBCentralManagerDelegate {
         guard self.peripheral == nil else { return }
         self.peripheral = peripheral
         self.peripheral?.delegate = self
-        central.stopScan()
-        central.connect(peripheral, options: nil)
+        self.central.stopScan()
+        self.central.connect(peripheral, options: nil)
         onDeviceFound()
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        // Discover our service to find the confirmation characteristics.
         peripheral.discoverServices([BLEConstants.serviceUUID])
         startRSSIPolling()
     }
@@ -207,15 +226,11 @@ extension BLECentralManager: CBPeripheralDelegate {
         _ peripheral: CBPeripheral,
         didUpdateNotificationStateFor characteristic: CBCharacteristic,
         error: Error?
-    ) {
-        // Subscription to confirmChar established — ready to receive responses.
-    }
+    ) {}
 
     func peripheral(
         _ peripheral: CBPeripheral,
         didWriteValueFor characteristic: CBCharacteristic,
         error: Error?
-    ) {
-        // Optionally handle write acknowledgements here.
-    }
+    ) {}
 }

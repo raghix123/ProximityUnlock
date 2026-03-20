@@ -15,7 +15,7 @@ class BLEPeripheralManager: NSObject, ObservableObject {
 
     // MARK: - Private
 
-    private var peripheralManager: CBPeripheralManager!
+    private var peripheralManager: (any CBPeripheralManagerProtocol)!
     private var requestChar: CBMutableCharacteristic!
     private var confirmChar: CBMutableCharacteristic!
     private var subscribedCentrals: [CBCentral] = []
@@ -25,35 +25,46 @@ class BLEPeripheralManager: NSObject, ObservableObject {
     /// Called when Mac notifies that the screen was locked.
     var onLockEvent: (() -> Void)?
 
-    override init() {
+    // MARK: - Init
+
+    /// Production init — creates a real CBPeripheralManager.
+    convenience override init() {
+        self.init(peripheralManager: nil)
+        // Phase 2: self is ready, create real manager that calls back to delegate
+        let real = CBPeripheralManager(delegate: self, queue: nil)
+        self.peripheralManager = real
+    }
+
+    /// Testable init — accepts an injectable CBPeripheralManagerProtocol.
+    init(peripheralManager: (any CBPeripheralManagerProtocol)?) {
         super.init()
-        peripheralManager = CBPeripheralManager(delegate: self, queue: nil)
+        self.peripheralManager = peripheralManager
     }
 
     // MARK: - Public API
 
     func startAdvertising() {
-        guard peripheralManager.state == .poweredOn else { return }
+        guard peripheralManager?.state == .poweredOn else { return }
         buildAndAddService()
-        peripheralManager.startAdvertising([
+        peripheralManager?.startAdvertising([
             CBAdvertisementDataServiceUUIDsKey: [BLEConstants.serviceUUID],
             CBAdvertisementDataLocalNameKey: "ProximityUnlock"
         ])
     }
 
     func stopAdvertising() {
-        peripheralManager.stopAdvertising()
-        peripheralManager.removeAllServices()
+        peripheralManager?.stopAdvertising()
+        peripheralManager?.removeAllServices()
         subscribedCentrals.removeAll()
         isAdvertising = false
     }
 
     /// Send confirmation response ("approved" or "denied") back to connected Mac.
     func sendConfirmation(approved: Bool) {
-        guard !subscribedCentrals.isEmpty else { return }
+        guard !subscribedCentrals.isEmpty, let char = confirmChar else { return }
         let value = approved ? "approved" : "denied"
         let data = Data(value.utf8)
-        peripheralManager.updateValue(data, for: confirmChar, onSubscribedCentrals: subscribedCentrals)
+        peripheralManager?.updateValue(data, for: char, onSubscribedCentrals: subscribedCentrals)
         pendingUnlockRequest = false
     }
 
@@ -74,7 +85,26 @@ class BLEPeripheralManager: NSObject, ObservableObject {
         )
         let service = CBMutableService(type: BLEConstants.serviceUUID, primary: true)
         service.characteristics = [requestChar, confirmChar]
-        peripheralManager.add(service)
+        peripheralManager?.add(service)
+    }
+
+    // MARK: - Test Helpers
+
+    /// Called by tests to simulate the Mac writing a command to the request characteristic.
+    func simulateIncomingCommand(_ command: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            switch command {
+            case "unlock_request":
+                self.pendingUnlockRequest = true
+                self.onUnlockRequest?()
+            case "lock_event":
+                self.pendingUnlockRequest = false
+                self.onLockEvent?()
+            default:
+                break
+            }
+        }
     }
 }
 
@@ -124,18 +154,7 @@ extension BLEPeripheralManager: CBPeripheralManagerDelegate {
             peripheral.respond(to: request, withResult: .success)
 
             if request.characteristic.uuid == BLEConstants.unlockRequestCharUUID {
-                DispatchQueue.main.async { [weak self] in
-                    switch message {
-                    case "unlock_request":
-                        self?.pendingUnlockRequest = true
-                        self?.onUnlockRequest?()
-                    case "lock_event":
-                        self?.pendingUnlockRequest = false
-                        self?.onLockEvent?()
-                    default:
-                        break
-                    }
-                }
+                simulateIncomingCommand(message)
             }
         }
     }

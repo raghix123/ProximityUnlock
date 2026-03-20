@@ -9,6 +9,8 @@
 /* Begin PBXFileReference section */
 		A00341602F3C036300FCE096 /* ProximityUnlockMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ProximityUnlockMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0B4BA11EA3924C398F1C551F /* ProximityUnlockiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ProximityUnlockiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E678599399C943F383F3A8CE /* ProximityUnlockMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProximityUnlockMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		74CE281DE5A74F6BAB6EDFC8 /* ProximityUnlockiOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProximityUnlockiOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -20,6 +22,16 @@
 		A3B013A144774FC2BBF418B3 /* ProximityUnlockiOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ProximityUnlockiOS;
+			sourceTree = "<group>";
+		};
+		4C4E9657E2D44C3CB761D635 /* ProximityUnlockMacTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ProximityUnlockMacTests;
+			sourceTree = "<group>";
+		};
+		3AA1B77298FD4AC887767654 /* ProximityUnlockiOSTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ProximityUnlockiOSTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -39,6 +51,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		1A6B973883004F0195B03810 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FC0CFC8A7B2A44B496BE753E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -47,6 +73,8 @@
 			children = (
 				A00341622F3C036300FCE096 /* ProximityUnlockMac */,
 				A3B013A144774FC2BBF418B3 /* ProximityUnlockiOS */,
+				4C4E9657E2D44C3CB761D635 /* ProximityUnlockMacTests */,
+				3AA1B77298FD4AC887767654 /* ProximityUnlockiOSTests */,
 				A00341612F3C036300FCE096 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -56,12 +84,40 @@
 			children = (
 				A00341602F3C036300FCE096 /* ProximityUnlockMac.app */,
 				0B4BA11EA3924C398F1C551F /* ProximityUnlockiOS.app */,
+				E678599399C943F383F3A8CE /* ProximityUnlockMacTests.xctest */,
+				74CE281DE5A74F6BAB6EDFC8 /* ProximityUnlockiOSTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
+
+		F6E9650D064043F9A4C2AC63 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00341582F3C036300FCE096 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A003415F2F3C036300FCE096;
+			remoteInfo = ProximityUnlockMac;
+		};
+		8A5F72A0FA0048E183C84CE8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00341582F3C036300FCE096 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E390C7C85A23428EA8628AF2;
+			remoteInfo = ProximityUnlockiOS;
+		};
+
+		C93609FDCCD946F9B8BDC10B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A003415F2F3C036300FCE096 /* ProximityUnlockMac */;
+			targetProxy = F6E9650D064043F9A4C2AC63 /* PBXContainerItemProxy */;
+		};
+		BA7014AF8E514A6F9FCE7F80 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E390C7C85A23428EA8628AF2 /* ProximityUnlockiOS */;
+			targetProxy = 8A5F72A0FA0048E183C84CE8 /* PBXContainerItemProxy */;
+		};
 /* Begin PBXNativeTarget section */
 		A003415F2F3C036300FCE096 /* ProximityUnlockMac */ = {
 			isa = PBXNativeTarget;
@@ -107,6 +163,52 @@
 			productReference = 0B4BA11EA3924C398F1C551F /* ProximityUnlockiOS.app */;
 			productType = "com.apple.product-type.application";
 		};
+		6B57DFF89D1E43CCB80C67A4 /* ProximityUnlockMacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 078695D624C549969E697E2D /* Build configuration list for PBXNativeTarget "ProximityUnlockMacTests" */;
+			buildPhases = (
+				7C2B8922A13047A48EDE3641 /* Sources */,
+				1A6B973883004F0195B03810 /* Frameworks */,
+				148ECFC206DE41559C1320BF /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C93609FDCCD946F9B8BDC10B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				4C4E9657E2D44C3CB761D635 /* ProximityUnlockMacTests */,
+			);
+			name = ProximityUnlockMacTests;
+			packageProductDependencies = (
+			);
+			productName = ProximityUnlockMacTests;
+			productReference = E678599399C943F383F3A8CE /* ProximityUnlockMacTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		96E4C8BCABC44B9DACC2D25C /* ProximityUnlockiOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3A6F4B1B4245430390D350BC /* Build configuration list for PBXNativeTarget "ProximityUnlockiOSTests" */;
+			buildPhases = (
+				5CEA35CCE37D4051A40D8199 /* Sources */,
+				FC0CFC8A7B2A44B496BE753E /* Frameworks */,
+				210351B706D2490C8CE399A3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BA7014AF8E514A6F9FCE7F80 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				3AA1B77298FD4AC887767654 /* ProximityUnlockiOSTests */,
+			);
+			name = ProximityUnlockiOSTests;
+			packageProductDependencies = (
+			);
+			productName = ProximityUnlockiOSTests;
+			productReference = 74CE281DE5A74F6BAB6EDFC8 /* ProximityUnlockiOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -138,6 +240,8 @@
 			targets = (
 				A003415F2F3C036300FCE096 /* ProximityUnlockMac */,
 				E390C7C85A23428EA8628AF2 /* ProximityUnlockiOS */,
+				6B57DFF89D1E43CCB80C67A4 /* ProximityUnlockMacTests */,
+				96E4C8BCABC44B9DACC2D25C /* ProximityUnlockiOSTests */,
 			);
 		};
 /* End PBXProject section */
@@ -157,6 +261,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		148ECFC206DE41559C1320BF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		210351B706D2490C8CE399A3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -168,6 +286,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AFF10E3CECE5446A81114A0D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7C2B8922A13047A48EDE3641 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5CEA35CCE37D4051A40D8199 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -420,6 +552,77 @@
 			};
 			name = Release;
 		};
+
+		2F7893B9A355470AB2C4B9DF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raghav.ProximityUnlock.ProximityUnlockMacTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ProximityUnlockMac.app/Contents/MacOS/ProximityUnlockMac";
+			};
+			name = Debug;
+		};
+		E8CE05682ADA45F898732902 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raghav.ProximityUnlock.ProximityUnlockMacTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ProximityUnlockMac.app/Contents/MacOS/ProximityUnlockMac";
+			};
+			name = Release;
+		};
+		2AB3DA68830F4564ADC21420 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raghav.ProximityUnlock.ProximityUnlockiOSTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ProximityUnlockiOS.app/ProximityUnlockiOS";
+			};
+			name = Debug;
+		};
+		30CB46D9276A4D9988EBA04A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.raghav.ProximityUnlock.ProximityUnlockiOSTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ProximityUnlockiOS.app/ProximityUnlockiOS";
+			};
+			name = Release;
+		};
 /* Begin XCConfigurationList section */
 		A003415B2F3C036300FCE096 /* Build configuration list for PBXProject "ProximityUnlockMac" */ = {
 			isa = XCConfigurationList;
@@ -444,6 +647,24 @@
 			buildConfigurations = (
 				FEE0C02BE186467B88CA39C1 /* Debug */,
 				C1688F8DB35E4D8294115EC2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		078695D624C549969E697E2D /* Build configuration list for PBXNativeTarget "ProximityUnlockMacTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F7893B9A355470AB2C4B9DF /* Debug */,
+				E8CE05682ADA45F898732902 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3A6F4B1B4245430390D350BC /* Build configuration list for PBXNativeTarget "ProximityUnlockiOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2AB3DA68830F4564ADC21420 /* Debug */,
+				30CB46D9276A4D9988EBA04A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -12,11 +12,20 @@ class UnlockConfirmationManager: ObservableObject {
     }
 
     private weak var bleManager: BLEPeripheralManager?
-    private let notificationCenter = UNUserNotificationCenter.current()
+    private let notificationCenter: any NotificationCentering
     private let confirmNotificationId = "com.raghav.ProximityUnlock.unlockRequest"
 
-    init(bleManager: BLEPeripheralManager) {
+    // MARK: - Init
+
+    /// Production init — uses real UNUserNotificationCenter.
+    convenience init(bleManager: BLEPeripheralManager) {
+        self.init(bleManager: bleManager, notificationCenter: UNUserNotificationCenter.current())
+    }
+
+    /// Testable init — accepts injectable notification center.
+    init(bleManager: BLEPeripheralManager, notificationCenter: any NotificationCentering) {
         self.bleManager = bleManager
+        self.notificationCenter = notificationCenter
         requiresConfirmation = UserDefaults.standard.object(forKey: "requiresConfirmation").map {
             _ in UserDefaults.standard.bool(forKey: "requiresConfirmation")
         } ?? true
@@ -33,14 +42,10 @@ class UnlockConfirmationManager: ObservableObject {
 
     private func handleUnlockRequest() {
         if !requiresConfirmation {
-            // Auto-approve without user confirmation
             approve()
             return
         }
-
         pendingRequest = true
-
-        // Show notification so the user can respond while app is in background
         scheduleUnlockNotification()
     }
 
@@ -75,7 +80,7 @@ class UnlockConfirmationManager: ObservableObject {
         let approveAction = UNNotificationAction(
             identifier: "APPROVE_UNLOCK",
             title: "Unlock Mac",
-            options: [.authenticationRequired]  // requires Face ID / passcode to execute
+            options: [.authenticationRequired]
         )
         let denyAction = UNNotificationAction(
             identifier: "DENY_UNLOCK",
@@ -94,16 +99,16 @@ class UnlockConfirmationManager: ObservableObject {
     private func scheduleUnlockNotification() {
         let content = UNMutableNotificationContent()
         content.title = "Mac Unlock Request"
-        content.body = "Your Mac is requesting to unlock. Allow?"
+        content.body = "Your Mac is requesting to unlock the screen. Allow?"
         content.categoryIdentifier = "UNLOCK_REQUEST"
         content.sound = .default
 
         let request = UNNotificationRequest(
             identifier: confirmNotificationId,
             content: content,
-            trigger: nil  // deliver immediately
+            trigger: nil
         )
-        notificationCenter.add(request)
+        notificationCenter.add(request, withCompletionHandler: nil)
     }
 
     private func cancelNotification() {
