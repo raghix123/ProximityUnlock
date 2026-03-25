@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     @EnvironmentObject var monitor: ProximityMonitor
@@ -176,8 +177,10 @@ struct SettingsView: View {
     }
 
     private func requestAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        AXIsProcessTrustedWithOptions(options as CFDictionary)
+        // Open System Settings directly to Privacy & Security > Accessibility
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
         // Re-check after a short delay (user may have just granted it).
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             isAccessibilityGranted = AXIsProcessTrusted()
