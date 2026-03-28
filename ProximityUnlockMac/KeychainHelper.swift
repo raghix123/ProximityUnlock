@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Security
 
 /// Stores the Mac login password securely in the system Keychain.
@@ -27,7 +28,10 @@ class KeychainHelper {
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
-        SecItemAdd(addQuery as CFDictionary, nil)
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        if status != errSecSuccess {
+            Log.unlock.error("Keychain savePassword failed with OSStatus \(status, privacy: .public)")
+        }
     }
 
     func getPassword() -> String? {
@@ -41,6 +45,9 @@ class KeychainHelper {
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            Log.unlock.error("Keychain getPassword failed with OSStatus \(status, privacy: .public)")
+        }
         guard status == errSecSuccess,
               let data = result as? Data,
               let password = String(data: data, encoding: .utf8)
@@ -55,7 +62,10 @@ class KeychainHelper {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            Log.unlock.error("Keychain deletePassword failed with OSStatus \(status, privacy: .public)")
+        }
     }
 
     func hasPassword() -> Bool {

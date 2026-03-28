@@ -43,7 +43,16 @@ class MultipeerManager: NSObject, ObservableObject {
         session.delegate = self
         browser = MCNearbyServiceBrowser(peer: myPeerID, serviceType: Self.serviceType)
         browser.delegate = self
+    }
+
+    func startBrowsing() {
+        Log.mpc.info("Starting MPC browsing")
         browser.startBrowsingForPeers()
+    }
+
+    func stopBrowsing() {
+        Log.mpc.info("Stopping MPC browsing")
+        browser.stopBrowsingForPeers()
     }
 
     // MARK: - Public API
@@ -116,8 +125,11 @@ extension MultipeerManager: MCNearbyServiceBrowserDelegate {
 
     func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID,
                  withDiscoveryInfo info: [String: String]?) {
+        guard info?["app"] == "ProximityUnlock" else {
+            Log.mpc.info("Ignoring peer \(peerID.displayName, privacy: .public) — not a ProximityUnlock device")
+            return
+        }
         Log.mpc.info("Found peer: \(peerID.displayName, privacy: .public)")
-        // Auto-invite every peer that advertises our service type.
         browser.invitePeer(peerID, to: session, withContext: nil, timeout: 30)
     }
 

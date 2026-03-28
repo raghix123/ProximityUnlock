@@ -21,6 +21,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cancellable = proximityMonitor.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.updateStatusBarIcon() }
         }
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(sessionDidResignActive),
+            name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(sessionDidBecomeActive),
+            name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+    }
+
+    @objc private func sessionDidResignActive(_ notification: Notification) {
+        Log.ui.info("Session resigned active (Fast User Switch)")
+        proximityMonitor.pause()
+    }
+
+    @objc private func sessionDidBecomeActive(_ notification: Notification) {
+        Log.ui.info("Session became active")
+        proximityMonitor.resume()
     }
 
     private func setupStatusBar() {

@@ -12,12 +12,20 @@ class ProximityMonitor: ObservableObject {
     @Published var rssi: Int = -100
     @Published var isPhoneDetected: Bool = false
     @Published var isEnabled: Bool = true {
-        didSet { UserDefaults.standard.set(isEnabled, forKey: "isEnabled") }
+        didSet {
+            UserDefaults.standard.set(isEnabled, forKey: "isEnabled")
+            if isEnabled {
+                multipeerManager.startBrowsing()
+            } else {
+                multipeerManager.stopBrowsing()
+            }
+        }
     }
     @Published var requireConfirmation: Bool = false {
         didSet { UserDefaults.standard.set(requireConfirmation, forKey: "requireConfirmation") }
     }
     @Published var awaitingConfirmation: Bool = false
+    @Published var isPaused: Bool = false
 
     @Published var nearThreshold: Int = -75 {
         didSet { UserDefaults.standard.set(nearThreshold, forKey: "nearThreshold") }
@@ -95,6 +103,7 @@ class ProximityMonitor: ObservableObject {
                 self?.unlockManager.unlockScreen()
             }
         }
+        if isEnabled { multipeerManager.startBrowsing() }
     }
 
     /// Testable designated init — all dependencies injectable.
@@ -172,6 +181,7 @@ class ProximityMonitor: ObservableObject {
         nearTimer = nil
         Log.proximity.info("Transitioning to near (isEnabled=\(self.isEnabled, privacy: .public), isScreenLocked=\(self.unlockManager.isScreenLocked(), privacy: .public))")
         guard isEnabled else { return }
+        guard !isPaused else { return }
         proximityState = .near
         guard unlockManager.isScreenLocked() else { return }
 
@@ -187,6 +197,7 @@ class ProximityMonitor: ObservableObject {
         Log.proximity.info("Transitioning to far")
         cancelConfirmationWait()
         guard isEnabled else { return }
+        guard !isPaused else { return }
         proximityState = .far
         sendCommand("lock_event")
         if UserDefaults.standard.bool(forKey: "lockWhenFar") {
@@ -210,6 +221,18 @@ class ProximityMonitor: ObservableObject {
                 self?.awaitingConfirmation = false
             }
         }
+    }
+
+    func pause() {
+        Log.proximity.info("Monitoring paused")
+        isPaused = true
+        cancelPendingTimers()
+        cancelConfirmationWait()
+    }
+
+    func resume() {
+        Log.proximity.info("Monitoring resumed")
+        isPaused = false
     }
 
     func cancelConfirmationWait() {

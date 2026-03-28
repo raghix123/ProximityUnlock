@@ -14,6 +14,7 @@ class UnlockConfirmationManager: ObservableObject {
     private weak var bleManager: BLEPeripheralManager?
     private let notificationCenter: any NotificationCentering
     private let confirmNotificationId = "com.raghav.ProximityUnlock.unlockRequest"
+    private var requestTimeoutTimer: Timer?
 
     // MARK: - Init
 
@@ -49,11 +50,22 @@ class UnlockConfirmationManager: ObservableObject {
         }
         pendingRequest = true
         scheduleUnlockNotification()
+
+        requestTimeoutTimer?.invalidate()
+        requestTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async {
+                Log.unlock.info("Unlock request timed out on iOS side")
+                self?.pendingRequest = false
+                self?.cancelNotification()
+            }
+        }
     }
 
     /// Handles a lock event arriving via BLE or MPC.
     func receiveLockEvent() {
         Log.unlock.info("Received lock event")
+        requestTimeoutTimer?.invalidate()
+        requestTimeoutTimer = nil
         pendingRequest = false
         notificationCenter.removePendingNotificationRequests(withIdentifiers: [confirmNotificationId])
         notificationCenter.removeDeliveredNotifications(withIdentifiers: [confirmNotificationId])
@@ -66,6 +78,8 @@ class UnlockConfirmationManager: ObservableObject {
 
     func approve() {
         Log.unlock.info("Confirmation approved")
+        requestTimeoutTimer?.invalidate()
+        requestTimeoutTimer = nil
         bleManager?.sendConfirmation(approved: true)
         pendingRequest = false
         cancelNotification()
@@ -73,6 +87,8 @@ class UnlockConfirmationManager: ObservableObject {
 
     func deny() {
         Log.unlock.info("Confirmation denied")
+        requestTimeoutTimer?.invalidate()
+        requestTimeoutTimer = nil
         bleManager?.sendConfirmation(approved: false)
         pendingRequest = false
         cancelNotification()

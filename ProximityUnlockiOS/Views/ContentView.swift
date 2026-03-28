@@ -17,6 +17,7 @@ struct ContentView: View {
                 if advertiser.pendingUnlockRequest {
                     Section {
                         Button {
+                            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                             advertiser.approve()
                         } label: {
                             Label("Unlock Mac", systemImage: "lock.open.fill")
@@ -28,6 +29,7 @@ struct ContentView: View {
                         .listRowBackground(Color.green)
 
                         Button(role: .destructive) {
+                            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                             advertiser.deny()
                         } label: {
                             Label("Deny", systemImage: "xmark.circle")
@@ -42,8 +44,9 @@ struct ContentView: View {
 
                 // MARK: Manual Lock / Unlock
                 if advertiser.isConnected {
-                    Section("Mac Controls") {
+                    Section {
                         Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             advertiser.unlockMac()
                         } label: {
                             Label("Unlock Mac", systemImage: "lock.open.fill")
@@ -55,6 +58,7 @@ struct ContentView: View {
                         .listRowBackground(Color.green)
 
                         Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             advertiser.lockMac()
                         } label: {
                             Label("Lock Mac", systemImage: "lock.fill")
@@ -64,6 +68,14 @@ struct ContentView: View {
                                 .padding(.vertical, 2)
                         }
                         .listRowBackground(Color.orange)
+                    } header: {
+                        HStack {
+                            Text("Mac Controls")
+                            Spacer()
+                            Text(advertiser.multipeerManager.isConnected ? "(via Wi-Fi)" : "(via Bluetooth)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 

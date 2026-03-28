@@ -38,10 +38,20 @@ class MultipeerManager: NSObject, ObservableObject {
         super.init()
         session = MCSession(peer: myPeerID, securityIdentity: nil, encryptionPreference: .required)
         session.delegate = self
-        advertiser = MCNearbyServiceAdvertiser(peer: myPeerID, discoveryInfo: nil,
+        advertiser = MCNearbyServiceAdvertiser(peer: myPeerID,
+                                               discoveryInfo: ["app": "ProximityUnlock"],
                                                serviceType: Self.serviceType)
         advertiser.delegate = self
+    }
+
+    func startAdvertising() {
+        Log.mpc.info("Starting MPC advertising")
         advertiser.startAdvertisingPeer()
+    }
+
+    func stopAdvertising() {
+        Log.mpc.info("Stopping MPC advertising")
+        advertiser.stopAdvertisingPeer()
     }
 
     // MARK: - Public API
@@ -57,7 +67,11 @@ class MultipeerManager: NSObject, ObservableObject {
         Log.mpc.info("Sending message: \(message, privacy: .public)")
         guard !session.connectedPeers.isEmpty,
               let data = message.data(using: .utf8) else { return }
-        try? session.send(data, toPeers: session.connectedPeers, with: .reliable)
+        do {
+            try session.send(data, toPeers: session.connectedPeers, with: .reliable)
+        } catch {
+            Log.mpc.error("Failed to send message '\(message, privacy: .public)': \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     var hasConnectedPeer: Bool { !session.connectedPeers.isEmpty }

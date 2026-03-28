@@ -20,6 +20,7 @@ class ProximityAdvertiser: ObservableObject {
             Log.ui.info("isEnabled changed to \(self.isEnabled, privacy: .public)")
             UserDefaults.standard.set(isEnabled, forKey: "isEnabled")
             isEnabled ? bleManager.startAdvertising() : bleManager.stopAdvertising()
+            isEnabled ? multipeerManager.startAdvertising() : multipeerManager.stopAdvertising()
         }
     }
 
@@ -66,6 +67,7 @@ class ProximityAdvertiser: ObservableObject {
         multipeerManager.onLockEvent = { [weak self] in
             Task { @MainActor [weak self] in self?.confirmationManager.receiveLockEvent() }
         }
+        if isEnabled { multipeerManager.startAdvertising() }
     }
 
     // MARK: - Public API

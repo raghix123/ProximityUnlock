@@ -224,6 +224,9 @@ extension BLECentralManager: CBCentralManagerDelegate {
 extension BLECentralManager: CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
+        if let error {
+            Log.ble.error("Failed to read RSSI: \(error.localizedDescription, privacy: .public)")
+        }
         guard error == nil else { return }
         Log.ble.debug("RSSI: \(RSSI.intValue, privacy: .public)")
         resetLostTimer()
@@ -291,5 +294,9 @@ extension BLECentralManager: CBPeripheralDelegate {
         _ peripheral: CBPeripheral,
         didWriteValueFor characteristic: CBCharacteristic,
         error: Error?
-    ) {}
+    ) {
+        if let error {
+            Log.ble.error("Failed to write value for \(characteristic.uuid.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }

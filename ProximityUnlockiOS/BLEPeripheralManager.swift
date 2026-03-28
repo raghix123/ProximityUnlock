@@ -158,6 +158,7 @@ extension BLEPeripheralManager: CBPeripheralManagerDelegate {
         for request in requests {
             guard let data = request.value,
                   let message = String(data: data, encoding: .utf8) else {
+                Log.ble.warning("Received write with invalid or non-UTF-8 data")
                 peripheral.respond(to: request, withResult: .invalidAttributeValueLength)
                 continue
             }
@@ -166,7 +167,12 @@ extension BLEPeripheralManager: CBPeripheralManagerDelegate {
             peripheral.respond(to: request, withResult: .success)
 
             if request.characteristic.uuid == BLEConstants.unlockRequestCharUUID {
-                simulateIncomingCommand(message)
+                switch message {
+                case "unlock_request", "lock_event":
+                    simulateIncomingCommand(message)
+                default:
+                    Log.ble.warning("Unrecognized command: \(message, privacy: .public)")
+                }
             }
         }
     }

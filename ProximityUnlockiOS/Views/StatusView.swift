@@ -35,6 +35,12 @@ struct StatusView: View {
                     Label("Mac connected", systemImage: "checkmark.circle.fill")
                         .font(.subheadline)
                         .foregroundStyle(.green)
+                    Label(
+                        advertiser.multipeerManager.isConnected ? "Connected via Wi-Fi" : "Connected via Bluetooth",
+                        systemImage: advertiser.multipeerManager.isConnected ? "wifi" : "antenna.radiowaves.left.and.right"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
         }

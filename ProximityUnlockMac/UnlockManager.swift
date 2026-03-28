@@ -37,7 +37,11 @@ class UnlockManager {
         let task = Process()
         task.launchPath = "/usr/bin/pmset"
         task.arguments = ["displaysleepnow"]
-        try? task.run()
+        do {
+            try task.run()
+        } catch {
+            Log.unlock.error("Failed to lock screen: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: - Private
