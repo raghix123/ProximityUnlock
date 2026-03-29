@@ -16,12 +16,9 @@ extension CBCentralManager: CBCentralManagerProtocol {}
 
 // MARK: - High-Level BLE Central Protocol
 
-/// Consumed by ProximityMonitor. Only exposes the write-command direction;
-/// the reverse direction (RSSI, found, lost, confirmation) is wired via closures
-/// stored in BLECentralManager and callable by tests directly on ProximityMonitor.
-protocol BLECentralManaging: AnyObject {
-    func writeCommand(_ command: String)
-}
+/// M7+: BLE is RSSI-only. No command writing. The manager handles scanning, connection
+/// for RSSI polling, device found/lost events, and RSSI updates.
+protocol BLECentralManaging: AnyObject {}
 
 // MARK: - UnlockManager Protocol
 

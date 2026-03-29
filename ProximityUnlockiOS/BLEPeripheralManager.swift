@@ -1,38 +1,28 @@
 import CoreBluetooth
 import Foundation
 
-/// Manages the iOS side of the BLE connection.
-/// Advertises the ProximityUnlock service UUID so the Mac can discover and connect.
-/// Also handles the unlock confirmation characteristic handshake.
+/// Manages the iOS BLE peripheral.
+///
+/// M7+: BLE is RSSI-only. The iPhone advertises its service UUID so the Mac can
+/// discover it and read signal strength for proximity detection. All commands
+/// (unlock_request, lock_event, confirmations) travel over MultipeerConnectivity.
+/// There are no GATT characteristics — this peripheral is advertisement-only.
 class BLEPeripheralManager: NSObject, ObservableObject {
 
     // MARK: - Published State
 
     @Published var bluetoothState: CBManagerState = .unknown
     @Published var isAdvertising: Bool = false
-    @Published var isConnected: Bool = false
-    @Published var pendingUnlockRequest: Bool = false
 
     // MARK: - Private
 
     private var peripheralManager: (any CBPeripheralManagerProtocol)!
-    private var requestChar: CBMutableCharacteristic!
-    private var confirmChar: CBMutableCharacteristic!
-    private var subscribedCentrals: [CBCentral] = []
-
-    /// Called when the Mac sends an unlock request; iOS app should confirm/deny.
-    var onUnlockRequest: (() -> Void)?
-    /// Called when Mac notifies that the screen was locked.
-    var onLockEvent: (() -> Void)?
 
     // MARK: - Init
 
     /// Production init — creates a real CBPeripheralManager with state restoration.
     convenience override init() {
         self.init(peripheralManager: nil)
-        // Phase 2: self is ready, create real manager that calls back to delegate.
-        // CBPeripheralManagerOptionRestoreIDKey enables state restoration so iOS can
-        // revive the app after background termination and resume BLE advertising.
         let real = CBPeripheralManager(
             delegate: self,
             queue: nil,
@@ -50,9 +40,11 @@ class BLEPeripheralManager: NSObject, ObservableObject {
     // MARK: - Public API
 
     func startAdvertising() {
-        Log.ble.info("Starting BLE advertising")
+        Log.ble.info("Starting BLE advertising (RSSI beacon)")
         guard peripheralManager?.state == .poweredOn else { return }
-        buildAndAddService()
+        // No characteristics — advertisement-only service for RSSI proximity sensing
+        let service = CBMutableService(type: BLEConstants.serviceUUID, primary: true)
+        peripheralManager?.add(service)
         peripheralManager?.startAdvertising([
             CBAdvertisementDataServiceUUIDsKey: [BLEConstants.serviceUUID],
             CBAdvertisementDataLocalNameKey: "ProximityUnlock"
@@ -63,57 +55,7 @@ class BLEPeripheralManager: NSObject, ObservableObject {
         Log.ble.info("Stopping BLE advertising")
         peripheralManager?.stopAdvertising()
         peripheralManager?.removeAllServices()
-        subscribedCentrals.removeAll()
         isAdvertising = false
-    }
-
-    /// Send confirmation response ("approved" or "denied") back to connected Mac.
-    func sendConfirmation(approved: Bool) {
-        pendingUnlockRequest = false
-        guard !subscribedCentrals.isEmpty, let char = confirmChar else { return }
-        let value = approved ? "approved" : "denied"
-        Log.ble.info("Sending confirmation: \(value, privacy: .public) to \(self.subscribedCentrals.count, privacy: .public) subscriber(s)")
-        let data = Data(value.utf8)
-        peripheralManager?.updateValue(data, for: char, onSubscribedCentrals: subscribedCentrals)
-    }
-
-    // MARK: - Private Helpers
-
-    private func buildAndAddService() {
-        requestChar = CBMutableCharacteristic(
-            type: BLEConstants.unlockRequestCharUUID,
-            properties: [.write, .notify],
-            value: nil,
-            permissions: [.writeable]
-        )
-        confirmChar = CBMutableCharacteristic(
-            type: BLEConstants.unlockConfirmCharUUID,
-            properties: [.write, .notify],
-            value: nil,
-            permissions: [.writeable]
-        )
-        let service = CBMutableService(type: BLEConstants.serviceUUID, primary: true)
-        service.characteristics = [requestChar, confirmChar]
-        peripheralManager?.add(service)
-    }
-
-    // MARK: - Test Helpers
-
-    /// Called by tests to simulate the Mac writing a command to the request characteristic.
-    func simulateIncomingCommand(_ command: String) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            switch command {
-            case "unlock_request":
-                self.pendingUnlockRequest = true
-                self.onUnlockRequest?()
-            case "lock_event":
-                self.pendingUnlockRequest = false
-                self.onLockEvent?()
-            default:
-                break
-            }
-        }
     }
 }
 
@@ -122,8 +64,6 @@ class BLEPeripheralManager: NSObject, ObservableObject {
 extension BLEPeripheralManager: CBPeripheralManagerDelegate {
 
     func peripheralManager(_ peripheral: CBPeripheralManager, willRestoreState dict: [String: Any]) {
-        // iOS terminated the app in the background; restore advertising state.
-        // Re-advertising happens automatically when peripheralManagerDidUpdateState fires with .poweredOn.
         Log.ble.info("Restoring peripheral manager state after background termination")
     }
 
@@ -134,7 +74,6 @@ extension BLEPeripheralManager: CBPeripheralManagerDelegate {
             startAdvertising()
         } else {
             isAdvertising = false
-            isConnected = false
         }
     }
 
@@ -146,47 +85,4 @@ extension BLEPeripheralManager: CBPeripheralManagerDelegate {
         }
         isAdvertising = error == nil
     }
-
-    func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
-        Log.ble.info("Central subscribed: \(central.identifier.uuidString, privacy: .public)")
-        if characteristic.uuid == BLEConstants.unlockConfirmCharUUID {
-            if !subscribedCentrals.contains(where: { $0.identifier == central.identifier }) {
-                subscribedCentrals.append(central)
-            }
-            isConnected = true
-        }
-    }
-
-    func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didUnsubscribeFrom characteristic: CBCharacteristic) {
-        Log.ble.info("Central unsubscribed: \(central.identifier.uuidString, privacy: .public)")
-        subscribedCentrals.removeAll { $0.identifier == central.identifier }
-        if subscribedCentrals.isEmpty {
-            isConnected = false
-            pendingUnlockRequest = false
-        }
-    }
-
-    func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
-        for request in requests {
-            guard let data = request.value,
-                  let message = String(data: data, encoding: .utf8) else {
-                Log.ble.warning("Received write with invalid or non-UTF-8 data")
-                peripheral.respond(to: request, withResult: .invalidAttributeValueLength)
-                continue
-            }
-
-            Log.ble.info("Received write command: \(message, privacy: .public)")
-            peripheral.respond(to: request, withResult: .success)
-
-            if request.characteristic.uuid == BLEConstants.unlockRequestCharUUID {
-                switch message {
-                case "unlock_request", "lock_event":
-                    simulateIncomingCommand(message)
-                default:
-                    Log.ble.warning("Unrecognized command: \(message, privacy: .public)")
-                }
-            }
-        }
-    }
 }
-

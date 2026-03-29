@@ -2,141 +2,127 @@ import XCTest
 @testable import ProximityUnlockiOS
 
 /// Tests for UnlockConfirmationManager — the confirmation handshake and notification logic.
+/// M7+: No BLE dependency. Commands arrive via MPC; manager is tested by calling
+/// receiveUnlockRequest() / receiveLockEvent() directly.
 @MainActor
 final class UnlockConfirmationManagerTests: XCTestCase {
 
-    private var bleManager: BLEPeripheralManager!
     private var confirmManager: UnlockConfirmationManager!
     private var mockNC: MockNotificationCenter!
-    private var mockPM: MockCBPeripheralManager!
+    private var confirmationsSent: [Bool] = []
 
     override func setUp() async throws {
-        mockPM = MockCBPeripheralManager()
-        mockPM.state = .poweredOn
-        bleManager = BLEPeripheralManager(peripheralManager: mockPM)
         mockNC = MockNotificationCenter()
-        confirmManager = UnlockConfirmationManager(bleManager: bleManager, notificationCenter: mockNC)
+        confirmManager = UnlockConfirmationManager(notificationCenter: mockNC)
         confirmManager.requiresConfirmation = true
+        // Track confirmations sent via MPC
+        confirmManager.onConfirmationSent = { [weak self] approved in
+            self?.confirmationsSent.append(approved)
+        }
     }
 
     override func tearDown() {
-        bleManager = nil
         confirmManager = nil
         mockNC = nil
-        mockPM = nil
+        confirmationsSent = []
     }
 
     // MARK: - Auto-Approve (No Confirmation Required)
 
-    func testAutoApproveWhenConfirmationDisabled() async throws {
+    func testAutoApproveWhenConfirmationDisabled() {
         confirmManager.requiresConfirmation = false
-
-        bleManager.simulateIncomingCommand("unlock_request")
-        try await Task.sleep(nanoseconds: 100_000_000)  // 0.1s for main queue dispatch
-
-        XCTAssertFalse(confirmManager.pendingRequest, "pendingRequest must not be set when auto-approving")
-        XCTAssertFalse(mockNC.notificationFired, "no notification should be fired when auto-approving")
-        // sendConfirmation called with approved=true; no subscribers so no updateValue, but state is consistent
-    }
-
-    /// Tests receiveUnlockRequest() directly (not via BLE simulation) with confirmation disabled.
-    func testDirectReceiveUnlockRequestAutoApprovesWhenConfirmationDisabled() {
-        confirmManager.requiresConfirmation = false
-
         confirmManager.receiveUnlockRequest()
 
         XCTAssertFalse(confirmManager.pendingRequest, "pendingRequest must not be set when auto-approving")
         XCTAssertFalse(mockNC.notificationFired, "no notification should be fired when auto-approving")
+        XCTAssertEqual(confirmationsSent, [true], "auto-approve must send 'approved' confirmation via MPC")
     }
 
-    /// Tests receiveUnlockRequest() directly with confirmation enabled — should show notification.
-    func testDirectReceiveUnlockRequestShowsNotificationWhenConfirmationEnabled() {
+    func testConfirmationRequiredSetssPendingRequest() {
         confirmManager.requiresConfirmation = true
-
         confirmManager.receiveUnlockRequest()
 
-        XCTAssertTrue(confirmManager.pendingRequest, "pendingRequest must be set when confirmation is required")
-        XCTAssertTrue(mockNC.notificationFired, "notification must be fired when confirmation is required")
+        XCTAssertTrue(confirmManager.pendingRequest)
+        XCTAssertTrue(mockNC.notificationFired)
     }
 
     // MARK: - Notification Firing
 
-    func testNotificationFiredWhenConfirmationRequired() async throws {
+    func testNotificationFiredWhenConfirmationRequired() {
         confirmManager.requiresConfirmation = true
+        confirmManager.receiveUnlockRequest()
 
-        bleManager.simulateIncomingCommand("unlock_request")
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        XCTAssertTrue(mockNC.notificationFired, "a notification should be scheduled for user to approve/deny")
+        XCTAssertTrue(mockNC.notificationFired)
         XCTAssertTrue(confirmManager.pendingRequest)
         XCTAssertEqual(mockNC.lastRequest?.identifier, "com.raghav.ProximityUnlock.unlockRequest")
     }
 
     // MARK: - Approve / Deny
 
-    func testApproveClears() async throws {
-        bleManager.simulateIncomingCommand("unlock_request")
-        try await Task.sleep(nanoseconds: 100_000_000)
+    func testApproveClears() {
+        confirmManager.receiveUnlockRequest()
         XCTAssertTrue(confirmManager.pendingRequest)
 
         confirmManager.approve()
-        XCTAssertFalse(confirmManager.pendingRequest, "pendingRequest must be false after approve()")
+        XCTAssertFalse(confirmManager.pendingRequest)
     }
 
-    func testDenyClears() async throws {
-        bleManager.simulateIncomingCommand("unlock_request")
-        try await Task.sleep(nanoseconds: 100_000_000)
+    func testDenyClears() {
+        confirmManager.receiveUnlockRequest()
         XCTAssertTrue(confirmManager.pendingRequest)
 
         confirmManager.deny()
-        XCTAssertFalse(confirmManager.pendingRequest, "pendingRequest must be false after deny()")
+        XCTAssertFalse(confirmManager.pendingRequest)
     }
 
-    func testApproveCancelsNotification() async throws {
-        bleManager.simulateIncomingCommand("unlock_request")
-        try await Task.sleep(nanoseconds: 100_000_000)
-
+    func testApproveSendsConfirmationViaMPC() {
+        confirmManager.receiveUnlockRequest()
         confirmManager.approve()
-        XCTAssertTrue(
-            mockNC.removedPendingIdentifiers.contains("com.raghav.ProximityUnlock.unlockRequest"),
-            "notification must be cancelled on approve"
-        )
+
+        XCTAssertEqual(confirmationsSent, [true], "approve must fire onConfirmationSent(true)")
     }
 
-    func testDenyCancelsNotification() async throws {
-        bleManager.simulateIncomingCommand("unlock_request")
-        try await Task.sleep(nanoseconds: 100_000_000)
-
+    func testDenySendsConfirmationViaMPC() {
+        confirmManager.receiveUnlockRequest()
         confirmManager.deny()
+
+        XCTAssertEqual(confirmationsSent, [false], "deny must fire onConfirmationSent(false)")
+    }
+
+    func testApproveCancelsNotification() {
+        confirmManager.receiveUnlockRequest()
+        confirmManager.approve()
+
         XCTAssertTrue(
-            mockNC.removedPendingIdentifiers.contains("com.raghav.ProximityUnlock.unlockRequest"),
-            "notification must be cancelled on deny"
+            mockNC.removedPendingIdentifiers.contains("com.raghav.ProximityUnlock.unlockRequest")
         )
     }
 
-    // MARK: - Lock Event Clears Pending Request
+    func testDenyCancelsNotification() {
+        confirmManager.receiveUnlockRequest()
+        confirmManager.deny()
 
-    func testLockEventClearsPendingRequest() async throws {
-        bleManager.simulateIncomingCommand("unlock_request")
-        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(
+            mockNC.removedPendingIdentifiers.contains("com.raghav.ProximityUnlock.unlockRequest")
+        )
+    }
+
+    // MARK: - Lock Event
+
+    func testLockEventClearsPendingRequest() {
+        confirmManager.receiveUnlockRequest()
         XCTAssertTrue(confirmManager.pendingRequest)
 
-        bleManager.simulateIncomingCommand("lock_event")
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        XCTAssertFalse(confirmManager.pendingRequest, "lock_event must clear any pending unlock request")
+        confirmManager.receiveLockEvent()
+        XCTAssertFalse(confirmManager.pendingRequest)
     }
 
-    func testLockEventCancelsNotification() async throws {
-        bleManager.simulateIncomingCommand("unlock_request")
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        bleManager.simulateIncomingCommand("lock_event")
-        try await Task.sleep(nanoseconds: 100_000_000)
+    func testLockEventCancelsNotification() {
+        confirmManager.receiveUnlockRequest()
+        confirmManager.receiveLockEvent()
 
         XCTAssertTrue(
-            mockNC.removedPendingIdentifiers.contains("com.raghav.ProximityUnlock.unlockRequest"),
-            "lock_event must cancel the pending notification"
+            mockNC.removedPendingIdentifiers.contains("com.raghav.ProximityUnlock.unlockRequest")
         )
     }
 

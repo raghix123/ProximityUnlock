@@ -3,17 +3,15 @@ import Foundation
 import AppKit
 import os
 
-/// The service UUID that the iPhone app will advertise.
-/// Both the Mac and iPhone apps must use this exact UUID.
+/// BLE service UUID shared with the iOS app.
+/// M7+: Only the service UUID is needed for scanning/RSSI. No characteristics.
 enum BLEConstants {
-    static let serviceUUID            = CBUUID(string: "5F0A4A6E-9DC4-4C57-9A8C-D8BF0B1B0FDE")
-    /// Mac writes "unlock_request" / "lock_event" to this; iPhone is notified.
-    static let unlockRequestCharUUID  = CBUUID(string: "A3F1E2D4-5B6C-7A8E-9F0D-1B2C3E4F5A6B")
-    /// iPhone writes "approved" / "denied" to this; Mac is notified.
-    static let unlockConfirmCharUUID  = CBUUID(string: "B4E2F3C5-6D7E-8B9F-0A1C-2D3E4F5B6C7A")
+    static let serviceUUID = CBUUID(string: "5F0A4A6E-9DC4-4C57-9A8C-D8BF0B1B0FDE")
 }
 
-/// Manages CoreBluetooth scanning, RSSI polling, and the unlock-confirmation handshake.
+/// M7+: BLE is RSSI-only. The Mac scans for the iPhone's service UUID,
+/// connects to poll RSSI for proximity sensing, and fires device found/lost events.
+/// All commands (unlock_request, lock_event, confirmations) flow exclusively over MPC.
 class BLECentralManager: NSObject, BLECentralManaging {
 
     private var central: CBCentralManagerProtocol!
@@ -21,48 +19,36 @@ class BLECentralManager: NSObject, BLECentralManaging {
     private var rssiTimer: Timer?
     private var lostTimer: Timer?
 
-    /// Characteristic used to send unlock/lock commands to the iPhone.
-    private var requestChar: CBCharacteristic?
-    /// Characteristic used to receive confirm/deny responses from the iPhone.
-    private var confirmChar: CBCharacteristic?
-    /// Command queued before characteristics were discovered.
-    private var pendingCommand: String?
+    // MARK: - Callbacks
 
-    // MARK: - BLECentralManaging
-
-    let onRSSIUpdate:           (Int) -> Void
-    let onDeviceFound:          () -> Void
-    let onDeviceLost:           () -> Void
-    let onConfirmationReceived: (Bool) -> Void
+    let onRSSIUpdate:  (Int) -> Void
+    let onDeviceFound: () -> Void
+    let onDeviceLost:  () -> Void
 
     // MARK: - Init
 
     convenience init(
-        onRSSIUpdate:           @escaping (Int) -> Void,
-        onDeviceFound:          @escaping () -> Void,
-        onDeviceLost:           @escaping () -> Void,
-        onConfirmationReceived: @escaping (Bool) -> Void
+        onRSSIUpdate:  @escaping (Int) -> Void,
+        onDeviceFound: @escaping () -> Void,
+        onDeviceLost:  @escaping () -> Void
     ) {
         self.init(
             centralManager: nil,
             onRSSIUpdate: onRSSIUpdate,
             onDeviceFound: onDeviceFound,
-            onDeviceLost: onDeviceLost,
-            onConfirmationReceived: onConfirmationReceived
+            onDeviceLost: onDeviceLost
         )
     }
 
     init(
         centralManager: CBCentralManagerProtocol?,
-        onRSSIUpdate:           @escaping (Int) -> Void,
-        onDeviceFound:          @escaping () -> Void,
-        onDeviceLost:           @escaping () -> Void,
-        onConfirmationReceived: @escaping (Bool) -> Void
+        onRSSIUpdate:  @escaping (Int) -> Void,
+        onDeviceFound: @escaping () -> Void,
+        onDeviceLost:  @escaping () -> Void
     ) {
-        self.onRSSIUpdate           = onRSSIUpdate
-        self.onDeviceFound          = onDeviceFound
-        self.onDeviceLost           = onDeviceLost
-        self.onConfirmationReceived = onConfirmationReceived
+        self.onRSSIUpdate  = onRSSIUpdate
+        self.onDeviceFound = onDeviceFound
+        self.onDeviceLost  = onDeviceLost
         super.init()
 
         if let existing = centralManager {
@@ -71,8 +57,7 @@ class BLECentralManager: NSObject, BLECentralManaging {
             self.central = CBCentralManager(delegate: self, queue: nil)
         }
 
-        // When the Mac wakes from sleep, cancel any stale BLE connection and
-        // restart scanning so both sides re-sync their connection state.
+        // When the Mac wakes from sleep, cancel stale connection and restart scanning.
         NotificationCenter.default.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -86,8 +71,7 @@ class BLECentralManager: NSObject, BLECentralManaging {
 
     private func startScanning() {
         guard central.state == .poweredOn else { return }
-        // allowDuplicates: true → every advertisement packet fires didDiscover with fresh RSSI,
-        // giving sub-second proximity readings without waiting for a connected poll cycle.
+        // allowDuplicates: true gives sub-second RSSI updates from advertisement packets.
         central.scanForPeripherals(
             withServices: [BLEConstants.serviceUUID],
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
@@ -111,7 +95,6 @@ class BLECentralManager: NSObject, BLECentralManaging {
 
     private func resetLostTimer() {
         lostTimer?.invalidate()
-        // No RSSI update for 10 s → treat connection as lost.
         lostTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
             guard let self, let p = self.peripheral else { return }
             self.central.cancelPeripheralConnection(p)
@@ -120,43 +103,18 @@ class BLECentralManager: NSObject, BLECentralManaging {
 
     private func handleWakeFromSleep() {
         Log.ble.info("Handling wake from sleep")
-        // Cancel any stale peripheral connection; didDisconnectPeripheral will fire,
-        // reset state, and restart scanning automatically.
         if let p = peripheral {
             central.cancelPeripheralConnection(p)
         } else {
             startScanning()
         }
     }
-
-    // MARK: - Characteristics
-
-    func writeCommand(_ command: String) {
-        Log.ble.info("Writing BLE command: \(command, privacy: .public)")
-        guard let peripheral, let char = requestChar else {
-            // Characteristics not yet discovered — queue the command.
-            pendingCommand = command
-            return
-        }
-        pendingCommand = nil
-        let data = Data(command.utf8)
-        peripheral.writeValue(data, for: char, type: .withResponse)
-    }
-
-    private func subscribeToConfirmations() {
-        guard let peripheral, let char = confirmChar else { return }
-        peripheral.setNotifyValue(true, for: char)
-    }
-
-    private func flushPendingCommand() {
-        guard let command = pendingCommand else { return }
-        writeCommand(command)
-    }
 }
 
 // MARK: - CBCentralManagerDelegate
 
 extension BLECentralManager: CBCentralManagerDelegate {
+
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         Log.ble.info("Central manager state: \(String(describing: central.state.rawValue), privacy: .public)")
         if central.state == .poweredOn {
@@ -171,11 +129,9 @@ extension BLECentralManager: CBCentralManagerDelegate {
         rssi RSSI: NSNumber
     ) {
         let rssiValue = RSSI.intValue
-        // Ignore implausible readings (0 or positive means the API couldn't measure).
         guard rssiValue < 0 else { return }
 
         if self.peripheral == nil {
-            // First discovery — stop scan, connect so we can send commands.
             Log.ble.info("Discovered peripheral: \(peripheral.name ?? "unknown", privacy: .public) RSSI=\(rssiValue, privacy: .public)")
             self.peripheral = peripheral
             self.peripheral?.delegate = self
@@ -183,13 +139,12 @@ extension BLECentralManager: CBCentralManagerDelegate {
             self.central.connect(peripheral, options: nil)
             onDeviceFound()
         }
-        // Feed the advertisement RSSI immediately — much faster than waiting for readRSSI().
+        // Feed advertisement RSSI immediately for fast proximity updates.
         onRSSIUpdate(rssiValue)
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Log.ble.info("Connected to peripheral: \(peripheral.name ?? "unknown", privacy: .public)")
-        peripheral.discoverServices([BLEConstants.serviceUUID])
         startRSSIPolling()
     }
 
@@ -200,9 +155,6 @@ extension BLECentralManager: CBCentralManagerDelegate {
     ) {
         Log.ble.info("Disconnected from peripheral: \(peripheral.name ?? "unknown", privacy: .public), error: \(error?.localizedDescription ?? "none", privacy: .public)")
         stopRSSIPolling()
-        requestChar = nil
-        confirmChar = nil
-        pendingCommand = nil
         self.peripheral = nil
         onDeviceLost()
         startScanning()
@@ -213,7 +165,7 @@ extension BLECentralManager: CBCentralManagerDelegate {
         didFailToConnect peripheral: CBPeripheral,
         error: Error?
     ) {
-        Log.ble.error("Failed to connect to peripheral: \(peripheral.name ?? "unknown", privacy: .public), error: \(error?.localizedDescription ?? "none", privacy: .public)")
+        Log.ble.error("Failed to connect: \(peripheral.name ?? "unknown", privacy: .public), error: \(error?.localizedDescription ?? "none", privacy: .public)")
         self.peripheral = nil
         startScanning()
     }
@@ -231,72 +183,5 @@ extension BLECentralManager: CBPeripheralDelegate {
         Log.ble.debug("RSSI: \(RSSI.intValue, privacy: .public)")
         resetLostTimer()
         onRSSIUpdate(RSSI.intValue)
-    }
-
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        if let error {
-            Log.ble.error("Service discovery error: \(error.localizedDescription, privacy: .public)")
-        }
-        guard error == nil,
-              let service = peripheral.services?.first(where: { $0.uuid == BLEConstants.serviceUUID })
-        else { return }
-        peripheral.discoverCharacteristics(
-            [BLEConstants.unlockRequestCharUUID, BLEConstants.unlockConfirmCharUUID],
-            for: service
-        )
-    }
-
-    func peripheral(
-        _ peripheral: CBPeripheral,
-        didDiscoverCharacteristicsFor service: CBService,
-        error: Error?
-    ) {
-        if let error {
-            Log.ble.error("Characteristic discovery error: \(error.localizedDescription, privacy: .public)")
-        }
-        guard error == nil else { return }
-        for char in service.characteristics ?? [] {
-            switch char.uuid {
-            case BLEConstants.unlockRequestCharUUID:
-                requestChar = char
-            case BLEConstants.unlockConfirmCharUUID:
-                confirmChar = char
-                subscribeToConfirmations()
-            default:
-                break
-            }
-        }
-        // Send any command that arrived before characteristics were ready.
-        flushPendingCommand()
-    }
-
-    func peripheral(
-        _ peripheral: CBPeripheral,
-        didUpdateValueFor characteristic: CBCharacteristic,
-        error: Error?
-    ) {
-        guard characteristic.uuid == BLEConstants.unlockConfirmCharUUID,
-              error == nil,
-              let data = characteristic.value,
-              let message = String(data: data, encoding: .utf8)
-        else { return }
-
-        onConfirmationReceived(message == "approved")
-    }
-
-    func peripheral(
-        _ peripheral: CBPeripheral,
-        didUpdateNotificationStateFor characteristic: CBCharacteristic,
-        error: Error?
-    ) {}
-
-    func peripheral(
-        _ peripheral: CBPeripheral,
-        didWriteValueFor characteristic: CBCharacteristic,
-        error: Error?
-    ) {
-        if let error {
-            Log.ble.error("Failed to write value for \(characteristic.uuid.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        }
     }
 }

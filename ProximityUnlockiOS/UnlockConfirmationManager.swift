@@ -3,6 +3,7 @@ import UserNotifications
 
 /// Handles incoming unlock requests from the Mac and dispatches confirmations.
 /// Supports in-app UI (via `pendingRequest`) and iOS notifications (background-safe).
+/// M7+: Confirmations are sent exclusively via MPC — no BLE dependency.
 @MainActor
 class UnlockConfirmationManager: ObservableObject {
 
@@ -11,10 +12,9 @@ class UnlockConfirmationManager: ObservableObject {
         didSet { UserDefaults.standard.set(requiresConfirmation, forKey: "requiresConfirmation") }
     }
 
-    private weak var bleManager: BLEPeripheralManager?
     private let notificationCenter: any NotificationCentering
 
-    /// Called after BLE confirmation is sent so the caller can also send via MPC.
+    /// Called when a confirmation is sent so the caller can forward it via MPC.
     var onConfirmationSent: ((Bool) -> Void)?
     private let confirmNotificationId = "com.raghav.ProximityUnlock.unlockRequest"
     private var requestTimeoutTimer: Timer?
@@ -22,29 +22,21 @@ class UnlockConfirmationManager: ObservableObject {
     // MARK: - Init
 
     /// Production init — uses real UNUserNotificationCenter.
-    convenience init(bleManager: BLEPeripheralManager) {
-        self.init(bleManager: bleManager, notificationCenter: UNUserNotificationCenter.current())
+    convenience init() {
+        self.init(notificationCenter: UNUserNotificationCenter.current())
     }
 
     /// Testable init — accepts injectable notification center.
-    init(bleManager: BLEPeripheralManager, notificationCenter: any NotificationCentering) {
-        self.bleManager = bleManager
+    init(notificationCenter: any NotificationCentering) {
         self.notificationCenter = notificationCenter
         requiresConfirmation = UserDefaults.standard.object(forKey: "requiresConfirmation").map {
             _ in UserDefaults.standard.bool(forKey: "requiresConfirmation")
         } ?? true
-
-        bleManager.onUnlockRequest = { [weak self] in
-            Task { @MainActor [weak self] in self?.handleUnlockRequest() }
-        }
-        bleManager.onLockEvent = { [weak self] in
-            Task { @MainActor [weak self] in self?.handleLockEvent() }
-        }
     }
 
     // MARK: - Request Handling
 
-    /// Handles an unlock request arriving via BLE or MPC.
+    /// Handles an unlock request arriving via MPC.
     func receiveUnlockRequest() {
         Log.unlock.info("Received unlock request (requiresConfirmation=\(self.requiresConfirmation, privacy: .public))")
         if !requiresConfirmation {
@@ -64,7 +56,7 @@ class UnlockConfirmationManager: ObservableObject {
         }
     }
 
-    /// Handles a lock event arriving via BLE or MPC.
+    /// Handles a lock event arriving via MPC.
     func receiveLockEvent() {
         Log.unlock.info("Received lock event")
         requestTimeoutTimer?.invalidate()
@@ -74,16 +66,12 @@ class UnlockConfirmationManager: ObservableObject {
         notificationCenter.removeDeliveredNotifications(withIdentifiers: [confirmNotificationId])
     }
 
-    private func handleUnlockRequest() { receiveUnlockRequest() }
-    private func handleLockEvent()     { receiveLockEvent() }
-
     // MARK: - Confirmation Actions
 
     func approve() {
         Log.unlock.info("Confirmation approved")
         requestTimeoutTimer?.invalidate()
         requestTimeoutTimer = nil
-        bleManager?.sendConfirmation(approved: true)
         onConfirmationSent?(true)
         pendingRequest = false
         cancelNotification()
@@ -93,7 +81,6 @@ class UnlockConfirmationManager: ObservableObject {
         Log.unlock.info("Confirmation denied")
         requestTimeoutTimer?.invalidate()
         requestTimeoutTimer = nil
-        bleManager?.sendConfirmation(approved: false)
         onConfirmationSent?(false)
         pendingRequest = false
         cancelNotification()

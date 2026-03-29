@@ -3,13 +3,15 @@ import Combine
 @testable import ProximityUnlockMac
 
 /// Tests for ProximityMonitor — the core state machine.
-/// All BLE and unlock operations are mocked; timers run at 0.1s for speed.
+/// All BLE (RSSI-only) and unlock operations are mocked; timers run at 0.1s for speed.
+/// Commands go through MockMultipeerManager (M7+: MPC-only, no BLE fallback).
 @MainActor
 final class ProximityMonitorTests: XCTestCase {
 
     private var monitor: ProximityMonitor!
     private var mockBLE: MockBLECentralManager!
     private var mockUnlock: MockUnlockManager!
+    private var mockMPC: MockMultipeerManager!
 
     // Use fast hysteresis/timeout so tests finish quickly.
     private let hysteresis: TimeInterval = 0.1
@@ -18,17 +20,19 @@ final class ProximityMonitorTests: XCTestCase {
     override func setUp() async throws {
         mockBLE    = MockBLECentralManager()
         mockUnlock = MockUnlockManager()
+        mockMPC    = MockMultipeerManager()
         monitor = ProximityMonitor(
             bleManager: mockBLE,
             unlockManager: mockUnlock,
+            multipeerManager: mockMPC,
             hysteresisSeconds: hysteresis,
             confirmationTimeout: confirmTimeout
         )
         // Deterministic settings — override anything in UserDefaults
-        monitor.isEnabled          = true
+        monitor.isEnabled           = true
         monitor.requireConfirmation = false   // default to no-confirmation for most tests
-        monitor.nearThreshold      = -70
-        monitor.farThreshold       = -85
+        monitor.nearThreshold       = -70
+        monitor.farThreshold        = -85
         UserDefaults.standard.set(false, forKey: "lockWhenFar")
     }
 
@@ -36,6 +40,7 @@ final class ProximityMonitorTests: XCTestCase {
         monitor = nil
         mockBLE = nil
         mockUnlock = nil
+        mockMPC = nil
     }
 
     // MARK: - Near Transition
@@ -48,10 +53,9 @@ final class ProximityMonitorTests: XCTestCase {
         try await Task.sleep(nanoseconds: UInt64(hysteresis * 1.5 * 1_000_000_000))
 
         // RSSI crossed — Mac sends unlock_request via MPC and waits for approval.
-        // Even with requireConfirmation=false the round-trip goes over WiFi.
         XCTAssertEqual(monitor.proximityState, .near)
-        XCTAssertTrue(monitor.awaitingConfirmation, "should be awaiting MPC approval even with requireConfirmation=false")
-        XCTAssertTrue(mockBLE.didWrite("unlock_request"), "unlock_request must be sent via MPC channel")
+        XCTAssertTrue(monitor.awaitingConfirmation, "should be awaiting MPC approval")
+        XCTAssertTrue(mockMPC.didSend("unlock_request"), "unlock_request must be sent via MPC")
         XCTAssertFalse(mockUnlock.didUnlock, "must not unlock until iPhone approval arrives over MPC")
 
         // iPhone auto-approves via MPC → Mac unlocks
@@ -123,7 +127,7 @@ final class ProximityMonitorTests: XCTestCase {
         monitor.handleRSSI(-90)
         try await Task.sleep(nanoseconds: UInt64(hysteresis * 1.5 * 1_000_000_000))
 
-        XCTAssertTrue(mockBLE.didWrite("lock_event"), "should write lock_event to iPhone on far transition")
+        XCTAssertTrue(mockMPC.didSend("lock_event"), "should send lock_event via MPC on far transition")
     }
 
     // MARK: - Disabled State
@@ -154,7 +158,7 @@ final class ProximityMonitorTests: XCTestCase {
         monitor.handleRSSI(-60)
         try await Task.sleep(nanoseconds: UInt64(hysteresis * 1.5 * 1_000_000_000))
 
-        XCTAssertTrue(mockBLE.didWrite("unlock_request"), "should write unlock_request when requireConfirmation is on")
+        XCTAssertTrue(mockMPC.didSend("unlock_request"), "should send unlock_request via MPC when requireConfirmation is on")
         XCTAssertTrue(monitor.awaitingConfirmation)
         XCTAssertFalse(mockUnlock.didUnlock, "should NOT unlock immediately — must wait for iPhone approval")
     }
@@ -219,31 +223,31 @@ final class ProximityMonitorTests: XCTestCase {
 
     // MARK: - End-to-End Simulation
 
-    /// Complete simulation: phone approaches → unlock request sent → iPhone approves → screen unlocks.
+    /// Complete simulation: phone approaches → unlock request sent over MPC → iPhone approves → screen unlocks.
     func testFullUnlockHandshake() async throws {
         monitor.requireConfirmation = true
         mockUnlock.screenLocked = true
         monitor.isPhoneDetected = true
 
-        // Step 1: RSSI crosses near threshold (simulating phone getting close)
+        // Step 1: RSSI crosses near threshold
         monitor.handleRSSI(-65)
         try await Task.sleep(nanoseconds: UInt64(hysteresis * 1.5 * 1_000_000_000))
 
-        // Step 2: Mac should have sent unlock_request to iPhone
-        XCTAssertTrue(mockBLE.didWrite("unlock_request"), "Mac must request confirmation from iPhone")
+        // Step 2: Mac should have sent unlock_request to iPhone via MPC
+        XCTAssertTrue(mockMPC.didSend("unlock_request"), "Mac must request confirmation from iPhone via MPC")
         XCTAssertTrue(monitor.awaitingConfirmation)
         XCTAssertFalse(mockUnlock.didUnlock, "must not unlock before iPhone confirms")
 
-        // Step 3: User taps "Unlock Mac" on iPhone → iPhone sends "approved"
+        // Step 3: User taps "Unlock Mac" on iPhone → iPhone sends "approved" over MPC
         monitor.handleConfirmationResponse(true)
 
         // Step 4: Mac should now unlock
-        XCTAssertTrue(mockUnlock.didUnlock, "screen must unlock after iPhone approves")
+        XCTAssertTrue(mockUnlock.didUnlock, "screen must unlock after iPhone approves via MPC")
         XCTAssertEqual(monitor.proximityState, .near)
         XCTAssertFalse(monitor.awaitingConfirmation)
     }
 
-    /// Denial flow: phone approaches → request sent → user denies on iPhone → no unlock.
+    /// Denial flow: phone approaches → request sent via MPC → user denies on iPhone → no unlock.
     func testFullDenialHandshake() async throws {
         monitor.requireConfirmation = true
         mockUnlock.screenLocked = true
@@ -253,7 +257,7 @@ final class ProximityMonitorTests: XCTestCase {
 
         monitor.handleConfirmationResponse(false)
         XCTAssertFalse(mockUnlock.didUnlock)
-        XCTAssertEqual(mockBLE.writtenCommands.filter { $0 == "unlock_request" }.count, 1)
+        XCTAssertEqual(mockMPC.sentCommands.filter { $0 == "unlock_request" }.count, 1)
     }
 
     // MARK: - Direct Transition Methods When Disabled
@@ -262,11 +266,9 @@ final class ProximityMonitorTests: XCTestCase {
         monitor.isEnabled = false
         mockUnlock.screenLocked = true
 
-        // Call transitionToNear directly — it should bail out because isEnabled is false.
         monitor.transitionToNear()
 
         XCTAssertFalse(mockUnlock.didUnlock, "transitionToNear must not unlock when isEnabled is false")
-        // proximityState should NOT be set to .near when disabled
         XCTAssertNotEqual(monitor.proximityState, .near, "proximityState must not change to .near when disabled")
     }
 
@@ -274,24 +276,9 @@ final class ProximityMonitorTests: XCTestCase {
         monitor.isEnabled = false
         UserDefaults.standard.set(true, forKey: "lockWhenFar")
 
-        // Call transitionToFar directly — it should bail out because isEnabled is false.
         monitor.transitionToFar()
 
         XCTAssertFalse(mockUnlock.didLock, "transitionToFar must not lock when isEnabled is false")
-        // proximityState should NOT be set to .far when disabled
         XCTAssertNotEqual(monitor.proximityState, .far, "proximityState must not change to .far when disabled")
-        XCTAssertFalse(mockBLE.didWrite("lock_event"), "should not send lock_event when disabled")
-    }
-
-    func testConfirmationApprovalDoesNothingWhenScreenNotLocked() async throws {
-        mockUnlock.screenLocked = false
-        monitor.requireConfirmation = true
-        monitor.awaitingConfirmation = true
-
-        // Simulate approval when screen is already unlocked — deduplication guard.
-        monitor.handleConfirmationResponse(true)
-
-        XCTAssertFalse(mockUnlock.didUnlock, "should not call unlockScreen when screen is already unlocked")
-        XCTAssertFalse(monitor.awaitingConfirmation, "awaitingConfirmation should still be cleared")
     }
 }

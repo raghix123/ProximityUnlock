@@ -5,11 +5,8 @@ import os
 
 /// Manages the Mac side of a MultipeerConnectivity session.
 ///
-/// MPC automatically picks the best available transport — WiFi Direct, infrastructure
-/// WiFi, or Bluetooth — giving far more reliable message delivery than raw BLE GATT.
-/// This manager browses for nearby iPhones advertising the "prox-unlock" service,
-/// connects automatically, and provides a reliable channel for unlock commands and
-/// confirmation responses alongside BLE RSSI-based proximity sensing.
+/// All operational commands (unlock_request, lock_event) require a paired, authenticated peer.
+/// Pairing messages are handled by PairingManager before any operational traffic is permitted.
 class MultipeerManager: NSObject, ObservableObject, MacMultipeerManaging {
 
     // MARK: - Constants
@@ -20,6 +17,11 @@ class MultipeerManager: NSObject, ObservableObject, MacMultipeerManaging {
 
     @Published var isConnected: Bool = false
 
+    // MARK: - Sub-managers
+
+    let pairingManager: PairingManager
+    private let messageSigner: MessageSigner
+
     // MARK: - Private
 
     private let myPeerID = MCPeerID(displayName: Host.current().localizedName ?? "Mac")
@@ -28,22 +30,31 @@ class MultipeerManager: NSObject, ObservableObject, MacMultipeerManaging {
 
     // MARK: - Callbacks
 
-    /// Called on the main queue when the iPhone sends "approved" or "denied".
     var onConfirmationReceived: ((Bool) -> Void)?
-    /// Called on the main queue when the iPhone sends "lock_command".
     var onLockCommand: (() -> Void)?
-    /// Called on the main queue when the iPhone sends "unlock_command".
     var onUnlockCommand: (() -> Void)?
 
     // MARK: - Init
 
     override init() {
+        self.pairingManager = PairingManager()
+        self.messageSigner = MessageSigner(keyProvider: IdentityKeyManager.shared)
         super.init()
+
         Log.mpc.info("Initializing MPC with peer ID: \(self.myPeerID.displayName, privacy: .public)")
         session = MCSession(peer: myPeerID, securityIdentity: nil, encryptionPreference: .required)
         session.delegate = self
         browser = MCNearbyServiceBrowser(peer: myPeerID, serviceType: Self.serviceType)
         browser.delegate = self
+
+        // Wire pairing manager to send messages via MPC
+        pairingManager.sendMessage = { [weak self] data in
+            self?.sendRaw(data)
+        }
+        pairingManager.onPaired = { [weak self] in
+            Log.pairing.info("Pairing complete — operational channel active")
+            self?.objectWillChange.send()
+        }
     }
 
     func startBrowsing() {
@@ -58,18 +69,28 @@ class MultipeerManager: NSObject, ObservableObject, MacMultipeerManaging {
 
     // MARK: - Public API
 
-    /// Sends a command string to all connected peers reliably.
-    /// Returns true if at least one peer received the message.
+    /// Sends a signed command to paired peers.
+    /// Returns true if at least one peer is connected and paired.
     @discardableResult
     func sendCommand(_ command: String) -> Bool {
-        guard !session.connectedPeers.isEmpty,
-              let data = command.data(using: .utf8) else {
+        guard pairingManager.isPaired else {
+            Log.mpc.warning("sendCommand(\(command, privacy: .public)) blocked: not paired")
+            return false
+        }
+        guard !session.connectedPeers.isEmpty else {
             Log.mpc.info("sendCommand(\(command, privacy: .public)) failed: no connected peers")
             return false
         }
+
+        guard let message = try? messageSigner.createSecureMessage(command: command),
+              let data = try? JSONEncoder().encode(message) else {
+            Log.mpc.error("Failed to create secure message for command: \(command, privacy: .public)")
+            return false
+        }
+
         do {
             try session.send(data, toPeers: session.connectedPeers, with: .reliable)
-            Log.mpc.info("sendCommand(\(command, privacy: .public)) succeeded")
+            Log.mpc.info("sendCommand(\(command, privacy: .public)) succeeded (signed)")
             return true
         } catch {
             Log.mpc.error("sendCommand(\(command, privacy: .public)) error: \(error.localizedDescription, privacy: .public)")
@@ -78,6 +99,44 @@ class MultipeerManager: NSObject, ObservableObject, MacMultipeerManaging {
     }
 
     var hasConnectedPeer: Bool { !session.connectedPeers.isEmpty }
+
+    // MARK: - Private
+
+    private func sendRaw(_ data: Data) {
+        guard !session.connectedPeers.isEmpty else {
+            Log.mpc.warning("sendRaw: no connected peers")
+            return
+        }
+        do {
+            try session.send(data, toPeers: session.connectedPeers, with: .reliable)
+        } catch {
+            Log.mpc.error("sendRaw error: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func handleOperationalMessage(_ data: Data) {
+        guard let message = try? JSONDecoder().decode(SecureMessage.self, from: data) else {
+            Log.security.warning("Received unparseable operational message")
+            return
+        }
+        do {
+            try messageSigner.verifySecureMessage(message)
+        } catch {
+            Log.security.error("Message verification failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            switch message.command {
+            case "approved":        self?.onConfirmationReceived?(true)
+            case "denied":          self?.onConfirmationReceived?(false)
+            case "lock_command":    self?.onLockCommand?()
+            case "unlock_command":  self?.onUnlockCommand?()
+            default:
+                Log.mpc.warning("Unknown command: \(message.command, privacy: .public)")
+            }
+        }
+    }
 }
 
 // MARK: - MCSessionDelegate
@@ -95,21 +154,26 @@ extension MultipeerManager: MCSessionDelegate {
         Log.mpc.info("Peer \(peerID.displayName, privacy: .public) state: \(stateStr, privacy: .public)")
         DispatchQueue.main.async { [weak self] in
             self?.isConnected = state == .connected
+            // Initiate pairing handshake on new connection (if not already paired)
+            if state == .connected, let self, !self.pairingManager.isPaired {
+                Log.pairing.info("New peer connected, starting pairing handshake")
+                self.pairingManager.startPairing()
+            }
         }
     }
 
     func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
-        guard let message = String(data: data, encoding: .utf8) else { return }
-        Log.mpc.info("Received message: \(message, privacy: .public) from \(peerID.displayName, privacy: .public)")
-        DispatchQueue.main.async { [weak self] in
-            switch message {
-            case "approved":        self?.onConfirmationReceived?(true)
-            case "denied":          self?.onConfirmationReceived?(false)
-            case "lock_command":    self?.onLockCommand?()
-            case "unlock_command":  self?.onUnlockCommand?()
-            default:                break
+        // Try pairing message first
+        if (try? JSONDecoder().decode(PairingMessageType.self, from: data)) != nil {
+            Log.pairing.info("Routing pairing message from \(peerID.displayName, privacy: .public)")
+            Task { @MainActor [weak self] in
+                self?.pairingManager.handlePairingMessage(data)
             }
+            return
         }
+
+        // Operational signed message
+        handleOperationalMessage(data)
     }
 
     func session(_ session: MCSession, didReceive stream: InputStream,

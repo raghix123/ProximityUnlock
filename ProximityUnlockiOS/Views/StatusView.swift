@@ -31,16 +31,17 @@ struct StatusView: View {
             VStack(spacing: 4) {
                 Text(advertiser.bluetoothStatusDescription)
                     .font(.title3.weight(.semibold))
-                if advertiser.isConnected {
-                    Label("Mac connected", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.green)
+                if advertiser.isMPCConnected {
                     Label(
-                        advertiser.multipeerManager.isConnected ? "Connected via Wi-Fi" : "Connected via Bluetooth",
-                        systemImage: advertiser.multipeerManager.isConnected ? "wifi" : "antenna.radiowaves.left.and.right"
+                        advertiser.isPaired ? "Mac connected & paired" : "Mac connected (unpaired)",
+                        systemImage: advertiser.isPaired ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
                     )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline)
+                    .foregroundStyle(advertiser.isPaired ? .green : .orange)
+
+                    Label("Connected via Wi-Fi", systemImage: "wifi")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -51,7 +52,7 @@ struct StatusView: View {
     private var indicatorColor: Color {
         switch advertiser.bluetoothState {
         case .poweredOn:
-            return advertiser.isConnected ? .green : .blue
+            return advertiser.isMPCConnected ? (advertiser.isPaired ? .green : .orange) : .blue
         case .poweredOff, .unauthorized:
             return .red
         default:
@@ -62,7 +63,7 @@ struct StatusView: View {
     private var indicatorIcon: String {
         switch advertiser.bluetoothState {
         case .poweredOn:
-            return advertiser.isConnected ? "iphone.and.arrow.forward" : "iphone.radiowaves.left.and.right"
+            return advertiser.isMPCConnected ? "iphone.and.arrow.forward" : "iphone.radiowaves.left.and.right"
         case .poweredOff:
             return "iphone.slash"
         case .unauthorized:

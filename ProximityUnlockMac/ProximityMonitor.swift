@@ -65,11 +65,12 @@ class ProximityMonitor: ObservableObject {
 
     // MARK: - Init
 
-    /// Production init — creates real BLE and Unlock managers.
+    /// Production init — creates real BLE (RSSI-only) and Unlock managers.
     convenience init() {
         let mpc = MultipeerManager()
         self.init(unlockManager: UnlockManager(), multipeerManager: mpc)
         // Phase 2: self is now fully initialized; we can safely capture it in closures.
+        // BLE is RSSI-only — no confirmation callback needed.
         self.bleManager = BLECentralManager(
             onRSSIUpdate: { [weak self] rssi in
                 Task { @MainActor [weak self] in self?.handleRSSI(rssi) }
@@ -84,12 +85,9 @@ class ProximityMonitor: ObservableObject {
                     self?.cancelPendingTimers()
                     self?.cancelConfirmationWait()
                 }
-            },
-            onConfirmationReceived: { [weak self] approved in
-                Task { @MainActor [weak self] in self?.handleConfirmationResponse(approved) }
             }
         )
-        // Wire MPC confirmations — same handler, deduplication is handled by isScreenLocked().
+        // Wire MPC confirmations (sole channel for approvals — no BLE fallback).
         multipeerManager.onConfirmationReceived = { [weak self] approved in
             Task { @MainActor [weak self] in self?.handleConfirmationResponse(approved) }
         }
@@ -111,7 +109,7 @@ class ProximityMonitor: ObservableObject {
 
     /// Testable designated init — all dependencies injectable.
     /// Tests inject MockBLECentralManager and MockMultipeerManager; call handleRSSI/handleConfirmationResponse directly.
-    /// Pass nil for multipeerManager to get NullMultipeerManager (MPC no-op, BLE fallback active — matches legacy test behavior).
+    /// Pass nil for multipeerManager to get NullMultipeerManager (no-op — commands are silently dropped).
     init(
         bleManager: (any BLECentralManaging)? = nil,
         unlockManager: any UnlockManaging,
@@ -122,9 +120,8 @@ class ProximityMonitor: ObservableObject {
         self.unlockManager       = unlockManager
         self.hysteresisSeconds   = hysteresisSeconds
         self.confirmationTimeout = confirmationTimeout
-        // bleManager is set to nil here; convenience init overwrites it; tests supply their own.
         self.bleManager = bleManager
-        // nil → NullMultipeerManager (sendCommand always returns false, falls through to BLE in tests)
+        // nil → NullMultipeerManager (sendCommand always returns false — commands are dropped)
         self.multipeerManager = multipeerManager ?? NullMultipeerManager()
 
         // Restore persisted settings
@@ -255,17 +252,15 @@ class ProximityMonitor: ObservableObject {
         farTimer = nil
     }
 
-    // MARK: - Dual-Channel Command Sending
+    // MARK: - Command Sending (MPC-only, M7+)
 
-    /// Sends a command via MPC when connected (more reliable), falling back to BLE GATT.
-    /// Both channels are tried when both are available so the message gets through either way.
+    /// Sends a command via MPC only. BLE is RSSI-only and carries no commands.
     private func sendCommand(_ command: String) {
-        let sentViaMPC = multipeerManager.sendCommand(command)
-        if sentViaMPC {
+        let sent = multipeerManager.sendCommand(command)
+        if sent {
             Log.proximity.info("Sent command via MPC: \(command, privacy: .public)")
         } else {
-            Log.proximity.info("MPC unavailable, falling back to BLE for command: \(command, privacy: .public)")
-            bleManager?.writeCommand(command)
+            Log.proximity.warning("Command not sent — MPC unavailable or not paired: \(command, privacy: .public)")
         }
     }
 }

@@ -2,30 +2,6 @@ import Foundation
 @testable import ProximityUnlockMac
 
 /// Mock BLE central manager for unit tests.
-/// Records all commands written to it, and exposes helpers to simulate BLE events
-/// by calling ProximityMonitor's internal callback methods directly.
-class MockBLECentralManager: BLECentralManaging {
-
-    // MARK: - Recording
-
-    /// All commands written via writeCommand(_:), in order.
-    private(set) var writtenCommands: [String] = []
-
-    // MARK: - BLECentralManaging
-
-    func writeCommand(_ command: String) {
-        writtenCommands.append(command)
-    }
-
-    // MARK: - Helpers
-
-    var lastCommand: String? { writtenCommands.last }
-
-    func didWrite(_ command: String) -> Bool {
-        writtenCommands.contains(command)
-    }
-
-    func reset() {
-        writtenCommands.removeAll()
-    }
-}
+/// M7+: BLE is RSSI-only — no command writing. The mock satisfies the BLECentralManaging
+/// protocol (which is now empty). Command assertions use MockMultipeerManager instead.
+class MockBLECentralManager: BLECentralManaging {}

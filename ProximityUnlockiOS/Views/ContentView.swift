@@ -13,6 +13,23 @@ struct ContentView: View {
                         .listRowBackground(Color.clear)
                 }
 
+                // MARK: Pairing section
+                if !advertiser.isPaired {
+                    Section {
+                        if case .pairing(let phase) = advertiser.pairingManager.pairingState {
+                            PairingInProgressView(phase: phase)
+                        } else {
+                            Label("Not paired with any Mac", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("Pairing starts automatically when your Mac is nearby. Open the Mac app to begin.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } header: {
+                        Text("Pairing")
+                    }
+                }
+
                 // MARK: Pending unlock request (inline, no modal)
                 if advertiser.pendingUnlockRequest {
                     Section {
@@ -42,8 +59,8 @@ struct ContentView: View {
                     }
                 }
 
-                // MARK: Manual Lock / Unlock
-                if advertiser.isConnected {
+                // MARK: Manual Lock / Unlock (only when paired + connected)
+                if advertiser.isMPCConnected && advertiser.isPaired {
                     Section {
                         Button {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -72,7 +89,7 @@ struct ContentView: View {
                         HStack {
                             Text("Mac Controls")
                             Spacer()
-                            Text(advertiser.multipeerManager.isConnected ? "(via Wi-Fi)" : "(via Bluetooth)")
+                            Text("(via Wi-Fi)")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -86,6 +103,17 @@ struct ContentView: View {
                         .onChange(of: advertiser.requiresConfirmation) { _, new in
                             advertiser.confirmationManager.requiresConfirmation = new
                         }
+                }
+
+                // MARK: Paired device
+                if advertiser.isPaired,
+                   let peerName = SecureKeyStore.shared.getPairedPeerDisplayName() {
+                    Section("Paired Device") {
+                        LabeledContent("Device", value: peerName)
+                        Button("Unpair", role: .destructive) {
+                            advertiser.pairingManager.unpair()
+                        }
+                    }
                 }
 
                 // MARK: Bluetooth
@@ -106,8 +134,8 @@ struct ContentView: View {
                 // MARK: How it works
                 Section("How It Works") {
                     Label("Keep this app open or running in the background.", systemImage: "1.circle.fill")
-                    Label("Make sure Bluetooth is enabled on both devices.", systemImage: "2.circle.fill")
-                    Label("Walk near your Mac — it detects you and unlocks.", systemImage: "3.circle.fill")
+                    Label("Make sure Bluetooth and Wi-Fi are enabled on both devices.", systemImage: "2.circle.fill")
+                    Label("Walk near your Mac — it detects you via Bluetooth RSSI and unlocks via Wi-Fi.", systemImage: "3.circle.fill")
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -117,5 +145,67 @@ struct ContentView: View {
             .toolbarBackground(Color(.systemGroupedBackground), for: .navigationBar)
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
+    }
+}
+
+// MARK: - Pairing In-Progress Subview
+
+private struct PairingInProgressView: View {
+    @EnvironmentObject var advertiser: ProximityAdvertiser
+    let phase: PairingPhase
+
+    var body: some View {
+        switch phase {
+        case .waitingForPeer, .exchangingKeys:
+            HStack(spacing: 12) {
+                ProgressView()
+                Text("Exchanging keys with Mac…")
+                    .foregroundStyle(.secondary)
+            }
+        case .displayingCode(let code):
+            PairingCodeConfirmView(code: code, pairingManager: advertiser.pairingManager)
+        case .confirming, .deriving:
+            HStack(spacing: 12) {
+                ProgressView()
+                Text("Confirming pairing…")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: - Pairing Code Confirm View
+
+private struct PairingCodeConfirmView: View {
+    let code: String
+    let pairingManager: PairingManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Confirm pairing code", systemImage: "lock.shield")
+                .font(.headline)
+            Text("Compare this code with your Mac and tap Confirm if they match.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(formatCode(code))
+                .font(.system(size: 36, weight: .bold, design: .monospaced))
+                .foregroundStyle(.primary)
+                .padding(.vertical, 4)
+            HStack(spacing: 12) {
+                Button("Confirm") {
+                    pairingManager.confirmCode()
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Cancel", role: .destructive) {
+                    pairingManager.cancelPairing()
+                }
+            }
+        }
+    }
+
+    private func formatCode(_ code: String) -> String {
+        let clean = code.filter { $0.isNumber }
+        guard clean.count == 6 else { return code }
+        return String(clean.prefix(3)) + " " + String(clean.suffix(3))
     }
 }

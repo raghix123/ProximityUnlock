@@ -12,8 +12,17 @@ struct SettingsView: View {
     @State private var isAccessibilityGranted: Bool = false
     @State private var lockWhenFar: Bool = false
 
+    private var pairingManager: PairingManager? {
+        (monitor.multipeerManager as? MultipeerManager)?.pairingManager
+    }
+
     var body: some View {
         Form {
+            // MARK: Pairing
+            if let pm = pairingManager {
+                PairingSectionView(pairingManager: pm)
+            }
+
             // MARK: Status
             Section("Status") {
                 LabeledContent("iPhone") {
@@ -194,5 +203,90 @@ struct SettingsView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             isAccessibilityGranted = AXIsProcessTrusted()
         }
+    }
+}
+
+// MARK: - Pairing Section
+
+private struct PairingSectionView: View {
+    @ObservedObject var pairingManager: PairingManager
+
+    var body: some View {
+        Section("Pairing") {
+            switch pairingManager.pairingState {
+            case .unpaired:
+                Label("Not paired with any iPhone", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("Pairing starts automatically when your iPhone (with ProximityUnlock) is nearby.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+            case .pairing(let phase):
+                PairingPhaseView(phase: phase, pairingManager: pairingManager)
+
+            case .paired(let peerName):
+                Label("Paired with \(peerName)", systemImage: "checkmark.shield.fill")
+                    .foregroundStyle(.green)
+                Button("Unpair", role: .destructive) {
+                    pairingManager.unpair()
+                }
+            }
+
+            if let error = pairingManager.pairingError {
+                Label(error, systemImage: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+        }
+    }
+}
+
+private struct PairingPhaseView: View {
+    let phase: PairingPhase
+    let pairingManager: PairingManager
+
+    var body: some View {
+        switch phase {
+        case .waitingForPeer, .exchangingKeys:
+            HStack(spacing: 8) {
+                ProgressView().scaleEffect(0.7)
+                Text("Exchanging keys with iPhone…")
+                    .foregroundStyle(.secondary)
+            }
+
+        case .displayingCode(let code):
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Compare this code with your iPhone", systemImage: "lock.shield")
+                    .fontWeight(.semibold)
+                Text("If both devices show the same 6-digit code, tap Confirm on both to complete pairing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(formatCode(code))
+                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                    .padding(.vertical, 4)
+                HStack(spacing: 12) {
+                    Button("Confirm Pairing") {
+                        pairingManager.confirmCode()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Cancel", role: .destructive) {
+                        pairingManager.cancelPairing()
+                    }
+                }
+            }
+
+        case .confirming, .deriving:
+            HStack(spacing: 8) {
+                ProgressView().scaleEffect(0.7)
+                Text("Confirming pairing…")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func formatCode(_ code: String) -> String {
+        let clean = code.filter { $0.isNumber }
+        guard clean.count == 6 else { return code }
+        return String(clean.prefix(3)) + " " + String(clean.suffix(3))
     }
 }
