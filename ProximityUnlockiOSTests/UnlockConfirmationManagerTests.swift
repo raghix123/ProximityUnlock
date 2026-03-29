@@ -2,19 +2,21 @@ import XCTest
 @testable import ProximityUnlockiOS
 
 /// Tests for UnlockConfirmationManager — the confirmation handshake and notification logic.
-/// M7+: No BLE dependency. Commands arrive via MPC; manager is tested by calling
-/// receiveUnlockRequest() / receiveLockEvent() directly.
+/// M8+: Biometric recency checking integrated. Tests use MockBiometricChecker for deterministic results.
 @MainActor
 final class UnlockConfirmationManagerTests: XCTestCase {
 
     private var confirmManager: UnlockConfirmationManager!
     private var mockNC: MockNotificationCenter!
+    private var mockBiometric: MockBiometricChecker!
     private var confirmationsSent: [Bool] = []
 
     override func setUp() async throws {
         mockNC = MockNotificationCenter()
-        confirmManager = UnlockConfirmationManager(notificationCenter: mockNC)
+        mockBiometric = MockBiometricChecker()
+        confirmManager = UnlockConfirmationManager(notificationCenter: mockNC, biometricChecker: mockBiometric)
         confirmManager.requiresConfirmation = true
+        confirmManager.recencyWindowSeconds = 120
         // Track confirmations sent via MPC
         confirmManager.onConfirmationSent = { [weak self] approved in
             self?.confirmationsSent.append(approved)
@@ -24,21 +26,58 @@ final class UnlockConfirmationManagerTests: XCTestCase {
     override func tearDown() {
         confirmManager = nil
         mockNC = nil
+        mockBiometric = nil
         confirmationsSent = []
     }
 
-    // MARK: - Auto-Approve (No Confirmation Required)
+    // MARK: - Auto-Approve With Biometric Recency Check
 
-    func testAutoApproveWhenConfirmationDisabled() {
+    func testAutoApproveWhenBiometricPasses() {
         confirmManager.requiresConfirmation = false
+        mockBiometric.shouldPass = true
+
         confirmManager.receiveUnlockRequest()
 
-        XCTAssertFalse(confirmManager.pendingRequest, "pendingRequest must not be set when auto-approving")
-        XCTAssertFalse(mockNC.notificationFired, "no notification should be fired when auto-approving")
-        XCTAssertEqual(confirmationsSent, [true], "auto-approve must send 'approved' confirmation via MPC")
+        XCTAssertFalse(confirmManager.pendingRequest, "pendingRequest must not be set when biometric passes")
+        XCTAssertFalse(mockNC.notificationFired, "no notification should be fired when biometric passes")
+        XCTAssertEqual(confirmationsSent, [true], "biometric-pass must send 'approved' via MPC")
+        XCTAssertEqual(mockBiometric.callCount, 1)
+        XCTAssertEqual(mockBiometric.lastWindowSeconds, 120)
     }
 
-    func testConfirmationRequiredSetssPendingRequest() {
+    func testAutoApproveUsesConfiguredRecencyWindow() {
+        confirmManager.requiresConfirmation = false
+        confirmManager.recencyWindowSeconds = 60
+        mockBiometric.shouldPass = true
+
+        confirmManager.receiveUnlockRequest()
+
+        XCTAssertEqual(mockBiometric.lastWindowSeconds, 60, "recencyWindowSeconds must be passed to biometric checker")
+    }
+
+    func testBiometricFailFallsBackToManualUI() {
+        confirmManager.requiresConfirmation = false
+        mockBiometric.shouldPass = false
+
+        confirmManager.receiveUnlockRequest()
+
+        XCTAssertTrue(confirmManager.pendingRequest, "pendingRequest must be set when biometric fails")
+        XCTAssertTrue(mockNC.notificationFired, "notification must be fired on biometric failure")
+        XCTAssertTrue(confirmationsSent.isEmpty, "no confirmation must be sent automatically when biometric fails")
+    }
+
+    func testBiometricNotCalledWhenRequiresConfirmationIsTrue() {
+        confirmManager.requiresConfirmation = true
+
+        confirmManager.receiveUnlockRequest()
+
+        XCTAssertEqual(mockBiometric.callCount, 0, "biometric checker must not be called in manual confirmation mode")
+        XCTAssertTrue(confirmManager.pendingRequest)
+    }
+
+    // MARK: - Confirmation Required Sets Pending Request
+
+    func testConfirmationRequiredSetsPendingRequest() {
         confirmManager.requiresConfirmation = true
         confirmManager.receiveUnlockRequest()
 

@@ -103,6 +103,22 @@ struct ContentView: View {
                         .onChange(of: advertiser.requiresConfirmation) { _, new in
                             advertiser.confirmationManager.requiresConfirmation = new
                         }
+                    if !advertiser.requiresConfirmation {
+                        Picker("Auto-approve if authenticated within", selection: Binding(
+                            get: { advertiser.confirmationManager.recencyWindowSeconds },
+                            set: { advertiser.confirmationManager.recencyWindowSeconds = $0 }
+                        )) {
+                            Text("30 seconds").tag(30.0)
+                            Text("1 minute").tag(60.0)
+                            Text("2 minutes").tag(120.0)
+                            Text("5 minutes").tag(300.0)
+                            Text("Always prompt").tag(0.0)
+                        }
+                        .pickerStyle(.menu)
+                        Text("FaceID/passcode required on every unlock when \"Always prompt\" is selected.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 // MARK: Paired device

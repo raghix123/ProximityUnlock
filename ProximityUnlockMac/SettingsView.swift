@@ -85,43 +85,49 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // MARK: Password
+            // MARK: Password (gated on pairing)
             Section("Unlock Password") {
-                if hasPassword {
-                    Label("Password saved in Keychain", systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
-                    HStack {
-                        Button("Change Password") { showPasswordEntry = true }
-                        Button("Remove", role: .destructive) {
-                            KeychainHelper.shared.deletePassword()
-                            hasPassword = false
+                if pairingManager?.isPaired == true {
+                    if hasPassword {
+                        Label("Password saved (encrypted)", systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(.green)
+                        HStack {
+                            Button("Change Password") { showPasswordEntry = true }
+                            Button("Remove", role: .destructive) {
+                                KeychainHelper.shared.deletePassword()
+                                hasPassword = false
+                            }
+                        }
+                    } else {
+                        Text("Save your Mac login password so the app can type it automatically when your iPhone is nearby.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Set Password") { showPasswordEntry = true }
+                    }
+
+                    if showPasswordEntry {
+                        SecureField("Password", text: $password)
+                        SecureField("Confirm Password", text: $confirmPassword)
+                        if passwordMismatch {
+                            Label("Passwords do not match", systemImage: "xmark.circle")
+                                .foregroundStyle(.red)
+                                .font(.caption)
+                        }
+                        HStack {
+                            Button("Save") { savePassword() }
+                                .disabled(password.isEmpty)
+                            Button("Cancel") {
+                                password = ""
+                                confirmPassword = ""
+                                passwordMismatch = false
+                                showPasswordEntry = false
+                            }
                         }
                     }
                 } else {
-                    Text("Save your Mac login password so the app can type it automatically when your iPhone is nearby.")
-                        .font(.caption)
+                    Label("Pair with iPhone first to enable secure password storage.", systemImage: "lock.iphone")
                         .foregroundStyle(.secondary)
-                    Button("Set Password") { showPasswordEntry = true }
-                }
-
-                if showPasswordEntry {
-                    SecureField("Password", text: $password)
-                    SecureField("Confirm Password", text: $confirmPassword)
-                    if passwordMismatch {
-                        Label("Passwords do not match", systemImage: "xmark.circle")
-                            .foregroundStyle(.red)
-                            .font(.caption)
-                    }
-                    HStack {
-                        Button("Save") { savePassword() }
-                            .disabled(password.isEmpty)
-                        Button("Cancel") {
-                            password = ""
-                            confirmPassword = ""
-                            passwordMismatch = false
-                            showPasswordEntry = false
-                        }
-                    }
+                        .font(.caption)
                 }
             }
 
