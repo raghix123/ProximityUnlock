@@ -28,6 +28,33 @@ class ProximityMonitor: ObservableObject {
     @Published var awaitingConfirmation: Bool = false
     @Published var isPaused: Bool = false
 
+    // MARK: - Keystroke Injection Settings
+
+    /// Master toggle: enables proximity-gated password injection into any focused field.
+    @Published var keystrokeInjectionEnabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(keystrokeInjectionEnabled, forKey: "keystrokeInjectionEnabled")
+            if !keystrokeInjectionEnabled { keyMonitor.stop() }
+        }
+    }
+    /// When true: auto-inject as soon as phone is near (no trigger needed).
+    /// When false (default): require the user to type the trigger sequence first.
+    @Published var proximityOnlyMode: Bool = false {
+        didSet { UserDefaults.standard.set(proximityOnlyMode, forKey: "proximityOnlyMode") }
+    }
+    /// The key sequence that arms injection when proximityOnlyMode is false (default: "wasd").
+    @Published var triggerSequence: String = "wasd" {
+        didSet {
+            UserDefaults.standard.set(triggerSequence, forKey: "triggerSequence")
+            keyMonitor.triggerSequence = triggerSequence
+        }
+    }
+
+    /// True when phone is near, injection is enabled, and the screen is NOT locked.
+    @Published var isArmed: Bool = false
+
+    private let keyMonitor = GlobalKeyMonitor()
+
     @Published var nearThreshold: Int = -75 {
         didSet { UserDefaults.standard.set(nearThreshold, forKey: "nearThreshold") }
     }
@@ -114,10 +141,19 @@ class ProximityMonitor: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.isEnabled, !self.isPaused, self.isPhoneDetected else { return }
+                // Disarm keystroke injection — screen is locked, switch to unlock flow.
+                self.disarmInjection()
                 guard self.proximityState == .near, !self.awaitingConfirmation else { return }
                 Log.proximity.info("Screen locked while phone was near — requesting unlock confirmation")
                 self.requestUnlockConfirmation()
             }
+        }
+
+        // Wire the key monitor — fires on main thread (added to main run loop).
+        keyMonitor.onTriggered = { [weak self] in
+            guard let self, self.isArmed else { return }
+            Log.proximity.info("Key trigger fired while armed — injecting password")
+            self.unlockManager.injectPassword()
         }
 
         if isEnabled { multipeerManager.startBrowsing() }
@@ -153,6 +189,16 @@ class ProximityMonitor: ObservableObject {
         if UserDefaults.standard.object(forKey: "requireConfirmation") != nil {
             requireConfirmation = UserDefaults.standard.bool(forKey: "requireConfirmation")
         }
+        if UserDefaults.standard.object(forKey: "keystrokeInjectionEnabled") != nil {
+            keystrokeInjectionEnabled = UserDefaults.standard.bool(forKey: "keystrokeInjectionEnabled")
+        }
+        if UserDefaults.standard.object(forKey: "proximityOnlyMode") != nil {
+            proximityOnlyMode = UserDefaults.standard.bool(forKey: "proximityOnlyMode")
+        }
+        if let seq = UserDefaults.standard.string(forKey: "triggerSequence"), !seq.isEmpty {
+            triggerSequence = seq
+            keyMonitor.triggerSequence = seq
+        }
     }
 
     // MARK: - RSSI Handling (internal so tests can call directly)
@@ -187,11 +233,13 @@ class ProximityMonitor: ObservableObject {
 
     func handleConfirmationResponse(_ approved: Bool) {
         Log.proximity.info("Confirmation response: \(approved ? "approved" : "denied", privacy: .public)")
+        // Capture before clearing — the guard must verify a request was actually pending.
+        let wasAwaiting = awaitingConfirmation
         confirmationTimer?.invalidate()
         confirmationTimer = nil
         awaitingConfirmation = false
 
-        guard approved, isEnabled, unlockManager.isScreenLocked() else { return }
+        guard approved, wasAwaiting, isEnabled, unlockManager.isScreenLocked() else { return }
         unlockManager.unlockScreen()
     }
 
@@ -203,19 +251,21 @@ class ProximityMonitor: ObservableObject {
         guard isEnabled else { return }
         guard !isPaused else { return }
         proximityState = .near
-        guard unlockManager.isScreenLocked() else { return }
 
-        // Always route through MPC (WiFi) so the unlock signal travels over WiFi,
-        // not directly from BLE RSSI alone. The iPhone auto-approves when
-        // requiresConfirmation is disabled on its side; the Mac unlocks once it
-        // receives the "approved" message back over MPC.
-        requestUnlockConfirmation()
+        if unlockManager.isScreenLocked() {
+            // Screen-unlock flow: send request to iPhone for confirmation.
+            requestUnlockConfirmation()
+        } else if keystrokeInjectionEnabled {
+            // Keystroke injection flow: arm the system for password injection.
+            armInjection()
+        }
     }
 
     func transitionToFar() {
         farTimer = nil
         Log.proximity.info("Transitioning to far")
         cancelConfirmationWait()
+        disarmInjection()
         guard isEnabled else { return }
         guard !isPaused else { return }
         proximityState = .far
@@ -253,6 +303,30 @@ class ProximityMonitor: ObservableObject {
     func resume() {
         Log.proximity.info("Monitoring resumed")
         isPaused = false
+    }
+
+    // MARK: - Keystroke Injection Arm/Disarm
+
+    private func armInjection() {
+        guard keystrokeInjectionEnabled, !unlockManager.isScreenLocked() else { return }
+        Log.proximity.info("Arming keystroke injection (proximityOnly=\(self.proximityOnlyMode, privacy: .public))")
+        isArmed = true
+
+        if proximityOnlyMode {
+            // Auto-inject immediately — no trigger needed.
+            unlockManager.injectPassword()
+        } else {
+            // Wait for user to type the trigger sequence.
+            keyMonitor.triggerSequence = triggerSequence
+            keyMonitor.start()
+        }
+    }
+
+    private func disarmInjection() {
+        guard isArmed else { return }
+        Log.proximity.info("Disarming keystroke injection")
+        isArmed = false
+        keyMonitor.stop()
     }
 
     func cancelConfirmationWait() {

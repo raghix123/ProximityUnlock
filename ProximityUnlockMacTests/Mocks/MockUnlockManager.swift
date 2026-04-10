@@ -13,6 +13,7 @@ class MockUnlockManager: UnlockManaging {
 
     private(set) var unlockCallCount: Int = 0
     private(set) var lockCallCount: Int = 0
+    private(set) var injectCallCount: Int = 0
 
     // MARK: - UnlockManaging
 
@@ -30,14 +31,20 @@ class MockUnlockManager: UnlockManaging {
         screenLocked = true
     }
 
+    func injectPassword() {
+        injectCallCount += 1
+    }
+
     // MARK: - Helpers
 
     var didUnlock: Bool { unlockCallCount > 0 }
     var didLock: Bool { lockCallCount > 0 }
+    var didInject: Bool { injectCallCount > 0 }
 
     func reset() {
         unlockCallCount = 0
         lockCallCount = 0
+        injectCallCount = 0
         screenLocked = true
     }
 }
