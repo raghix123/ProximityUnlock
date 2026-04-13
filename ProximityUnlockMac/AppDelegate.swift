@@ -66,6 +66,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func updateStatusBarIcon() {
+        guard statusItem != nil else { return }  // Status bar not yet created (e.g., during onboarding)
+
         let symbolName: String
         if !proximityMonitor.isEnabled {
             symbolName = "iphone.slash"
