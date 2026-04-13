@@ -50,6 +50,8 @@ class ProximityMonitor: ObservableObject {
     private var nearTimer: Timer?
     private var farTimer: Timer?
     private var confirmationTimer: Timer?
+    private var rssiBuffer: [Int] = []
+    private let rssiBufferSize = 5
 
     var statusDescription: String {
         if !isEnabled { return "ProximityUnlock: Disabled" }
@@ -170,6 +172,14 @@ class ProximityMonitor: ObservableObject {
     func handleRSSI(_ newRSSI: Int) {
         rssi = newRSSI
 
+        // Maintain rolling buffer for smoothed RSSI (used for lock trigger stability)
+        rssiBuffer.append(newRSSI)
+        if rssiBuffer.count > rssiBufferSize {
+            rssiBuffer.removeFirst()
+        }
+        let smoothedRSSI = rssiBuffer.reduce(0, +) / rssiBuffer.count
+
+        // Raw RSSI for near (unlock): fast response when walking toward Mac
         if newRSSI >= nearThreshold {
             farTimer?.invalidate()
             farTimer = nil
@@ -179,11 +189,12 @@ class ProximityMonitor: ObservableObject {
                     Task { @MainActor [weak self] in self?.transitionToNear() }
                 }
             }
-        } else if newRSSI <= farThreshold {
+        // Smoothed RSSI for far (lock): stable, won't lock from a momentary signal drop
+        } else if smoothedRSSI <= farThreshold {
             nearTimer?.invalidate()
             nearTimer = nil
             if proximityState != .far && farTimer == nil {
-                Log.proximity.debug("RSSI \(newRSSI, privacy: .public) crossed far threshold \(self.farThreshold, privacy: .public)")
+                Log.proximity.debug("Smoothed RSSI \(smoothedRSSI, privacy: .public) crossed far threshold \(self.farThreshold, privacy: .public)")
                 farTimer = Timer.scheduledTimer(withTimeInterval: hysteresisSeconds, repeats: false) { [weak self] _ in
                     Task { @MainActor [weak self] in self?.transitionToFar() }
                 }
@@ -226,6 +237,7 @@ class ProximityMonitor: ObservableObject {
 
     func transitionToNear() {
         nearTimer = nil
+        rssiBuffer.removeAll()  // Flush stale history after state change to avoid bouncing back
         Log.proximity.info("Transitioning to near (isEnabled=\(self.isEnabled, privacy: .public), isScreenLocked=\(self.unlockManager.isScreenLocked(), privacy: .public))")
         guard isEnabled else { return }
         guard !isPaused else { return }
@@ -239,6 +251,7 @@ class ProximityMonitor: ObservableObject {
 
     func transitionToFar() {
         farTimer = nil
+        rssiBuffer.removeAll()  // Flush stale history after state change to avoid bouncing back
         Log.proximity.info("Transitioning to far")
         cancelConfirmationWait()
         guard isEnabled else { return }
