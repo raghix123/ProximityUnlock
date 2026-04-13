@@ -116,7 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func showOnboarding() {
         Log.ui.info("Showing onboarding")
         if onboardingWindow == nil {
-            let view = MacOnboardingView { [weak self] in
+            let view = MacOnboardingView(monitor: proximityMonitor) { [weak self] in
                 self?.completeOnboarding()
             }
             let window = NSWindow(
@@ -142,6 +142,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingWindow?.close()
         onboardingWindow = nil
         setupStatusBar()
+        // Auto-open settings after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.openSettings()
+        }
     }
 }
 
