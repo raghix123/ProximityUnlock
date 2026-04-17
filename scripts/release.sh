@@ -82,8 +82,25 @@ xcodebuild -exportArchive \
     -exportPath "$EXPORT_PATH" \
     | xcpretty 2>/dev/null || true
 
-echo "▶ Zipping..."
+echo "▶ Zipping for notarization..."
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+
+# Notarize + staple so Gatekeeper doesn't warn users on first launch.
+# Requires a one-time: xcrun notarytool store-credentials AC_NOTARY \
+#     --apple-id <you@icloud.com> --team-id <TEAMID> --password <app-specific-pw>
+# Set SKIP_NOTARIZE=1 in the env if you want to ship without notarization (not recommended).
+NOTARY_PROFILE="${NOTARY_PROFILE:-AC_NOTARY}"
+if [[ -z "${SKIP_NOTARIZE:-}" ]]; then
+    echo "▶ Submitting to Apple notary service (profile: $NOTARY_PROFILE)..."
+    xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+    echo "▶ Stapling ticket onto app..."
+    xcrun stapler staple "$APP_PATH"
+    echo "▶ Re-zipping with stapled ticket..."
+    rm -f "$ZIP_PATH"
+    ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+else
+    echo "⚠  SKIP_NOTARIZE=1 — shipping un-notarized build. Gatekeeper will warn users."
+fi
 
 echo "▶ Signing with EdDSA + regenerating appcast..."
 DERIVED_DATA="${HOME}/Library/Developer/Xcode/DerivedData"
