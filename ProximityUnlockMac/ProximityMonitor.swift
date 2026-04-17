@@ -52,6 +52,8 @@ class ProximityMonitor: ObservableObject {
     private(set) var bleManager: (any BLECentralManaging)?
     private let unlockManager: any UnlockManaging
 
+    static let defaultHysteresisSeconds: TimeInterval = 1.5
+
     // Hysteresis — injectable for fast tests.
     let hysteresisSeconds: TimeInterval
 
@@ -123,7 +125,7 @@ class ProximityMonitor: ObservableObject {
     init(
         bleManager: (any BLECentralManaging)? = nil,
         unlockManager: any UnlockManaging,
-        hysteresisSeconds: TimeInterval = 1.5
+        hysteresisSeconds: TimeInterval = ProximityMonitor.defaultHysteresisSeconds
     ) {
         self.unlockManager     = unlockManager
         self.hysteresisSeconds = hysteresisSeconds

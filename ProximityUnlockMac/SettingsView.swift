@@ -11,8 +11,10 @@ struct SettingsView: View {
     @State private var hasPassword: Bool = false
     @State private var showPasswordEntry: Bool = false
     @State private var passwordMismatch: Bool = false
+    @State private var passwordJustSaved: Bool = false
     @State private var isAccessibilityGranted: Bool = false
     @State private var showResetConfirm = false
+    @State private var launchAtLogin: Bool = LoginItemManager.isEnabled
 
     var body: some View {
         TabView {
@@ -33,6 +35,10 @@ struct SettingsView: View {
         }
         .frame(width: 460, height: 520)
         .onAppear { refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            isAccessibilityGranted = AXIsProcessTrusted()
+            launchAtLogin = LoginItemManager.isEnabled
+        }
     }
 
     // MARK: - Tabs
@@ -89,6 +95,14 @@ struct SettingsView: View {
                 Toggle("Enable Proximity Unlock", isOn: $monitor.isEnabled)
                 Toggle("Lock when iPhone leaves", isOn: $monitor.lockWhenFar)
                 Toggle("Unlock when iPhone returns", isOn: $monitor.unlockWhenNear)
+                Toggle("Launch at login", isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { newValue in
+                        launchAtLogin = newValue
+                        LoginItemManager.isEnabled = newValue
+                        TelemetryService.settingToggled("launch_at_login", value: newValue)
+                    }
+                ))
             }
 
             Section("Sensitivity") {
@@ -150,6 +164,13 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button("Set Password") { showPasswordEntry = true }
+                }
+
+                if passwordJustSaved {
+                    Label("Password saved", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.caption)
+                        .transition(.opacity)
                 }
 
                 if showPasswordEntry {
@@ -307,6 +328,11 @@ struct SettingsView: View {
         confirmPassword = ""
         passwordMismatch = false
         showPasswordEntry = false
+        withAnimation { passwordJustSaved = true }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            withAnimation { passwordJustSaved = false }
+        }
     }
 
     private func resetAndQuit() {
@@ -320,6 +346,7 @@ struct SettingsView: View {
     private func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
+        // Fallback in case the user returns to the app via a path that skips didBecomeActive.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             isAccessibilityGranted = AXIsProcessTrusted()
         }

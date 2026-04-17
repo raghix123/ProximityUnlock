@@ -546,8 +546,10 @@ private struct Step4Password: View {
 // MARK: - Step 5: Done
 
 private struct Step5Done: View {
+    @State private var launchAtLogin: Bool = LoginItemManager.isEnabled
+
     var body: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 24) {
             HeroIcon(systemName: "checkmark.circle.fill", color: .green)
 
             VStack(spacing: 8) {
@@ -572,9 +574,23 @@ private struct Step5Done: View {
                            description: "Pressing the lock button keeps your Mac locked until you come and go")
             }
             .padding(.horizontal, 8)
+
+            Toggle(isOn: Binding(
+                get: { launchAtLogin },
+                set: { launchAtLogin = $0; LoginItemManager.isEnabled = $0 }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Launch at login").font(.subheadline.weight(.semibold))
+                    Text("Start ProximityUnlock automatically when you log in.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .padding(.horizontal, 8)
         }
         .padding(.horizontal, 40)
-        .padding(.top, 36)
+        .padding(.top, 24)
     }
 }
 

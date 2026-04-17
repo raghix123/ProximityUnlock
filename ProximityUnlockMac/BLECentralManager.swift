@@ -8,6 +8,9 @@ import os
 /// Uses advertisement RSSI directly — no BLE connection required.
 class BLECentralManager: NSObject, BLECentralManaging {
 
+    private static let staleDeviceTimeout: TimeInterval = 15
+    private static let pruneInterval: TimeInterval = 5
+
     private var central: CBCentralManagerProtocol!
     private var pruneTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
@@ -74,8 +77,7 @@ class BLECentralManager: NSObject, BLECentralManaging {
             self.central = CBCentralManager(delegate: self, queue: nil)
         }
 
-        // Prune devices not seen for 15 seconds (check every 5s).
-        pruneTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        pruneTimer = Timer.scheduledTimer(withTimeInterval: Self.pruneInterval, repeats: true) { [weak self] _ in
             self?.pruneStaleDevices()
         }
 
@@ -127,7 +129,7 @@ class BLECentralManager: NSObject, BLECentralManaging {
     }
 
     private func pruneStaleDevices() {
-        let cutoff = Date().addingTimeInterval(-15.0)
+        let cutoff = Date().addingTimeInterval(-Self.staleDeviceTimeout)
         let staleNames = devicesByName.filter { $0.value.lastSeen < cutoff }.map { $0.key }
         guard !staleNames.isEmpty else { return }
         for name in staleNames { devicesByName.removeValue(forKey: name) }

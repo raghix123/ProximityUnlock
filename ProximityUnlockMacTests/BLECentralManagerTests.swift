@@ -114,4 +114,18 @@ final class BLECentralManagerTests: XCTestCase {
     func testNoRSSIBeforeDiscovery() {
         XCTAssertTrue(rssiUpdates.isEmpty)
     }
+
+    // MARK: - State-Change Callback
+
+    /// Verify that onStateChange fires when the CoreBluetooth delegate reports a state update.
+    /// Uses a real CBCentralManager because the CB delegate method requires a concrete type.
+    func testOnStateChangeCallbackFiresOnDelegateStateUpdate() {
+        var receivedStates: [CBManagerState] = []
+        bleManager.onStateChange = { receivedStates.append($0) }
+
+        let real = CBCentralManager(delegate: nil, queue: nil)
+        bleManager.centralManagerDidUpdateState(real)
+
+        XCTAssertEqual(receivedStates.count, 1, "onStateChange must fire once per delegate call")
+    }
 }

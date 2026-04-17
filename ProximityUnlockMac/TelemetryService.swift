@@ -16,16 +16,20 @@ enum TelemetryService {
 
     static func start() {
         guard !didStart else { return }
-        didStart = true
-        var config = TelemetryManagerConfiguration(appID: appID)
-        config.analyticsDisabled = !isEnabled
-        TelemetryManager.initialize(with: config)
+        configure(enabled: isEnabled)
     }
 
     static func signal(_ name: String, parameters: [String: String] = [:]) {
         guard isEnabled else { return }
         start()  // Lazy init: signals from object initializers can fire before AppDelegate.
         TelemetryManager.send(name, with: parameters)
+    }
+
+    private static func configure(enabled: Bool) {
+        var config = TelemetryManagerConfiguration(appID: appID)
+        config.analyticsDisabled = !enabled
+        TelemetryManager.initialize(with: config)
+        didStart = true
     }
 
     // MARK: - Named events
@@ -75,9 +79,6 @@ enum TelemetryService {
     static func setEnabled(_ enabled: Bool) {
         isEnabled = enabled
         // Re-initialize so TelemetryDeck picks up the new analyticsDisabled flag.
-        var config = TelemetryManagerConfiguration(appID: appID)
-        config.analyticsDisabled = !enabled
-        TelemetryManager.initialize(with: config)
-        didStart = true
+        configure(enabled: enabled)
     }
 }

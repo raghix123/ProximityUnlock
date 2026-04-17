@@ -342,6 +342,52 @@ final class ProximityMonitorTests: XCTestCase {
         XCTAssertEqual(monitor.proximityState, .far, "wake must not change far state")
     }
 
+    func testScreensWakeFromUnknownStaysUnknown() {
+        XCTAssertEqual(monitor.proximityState, .unknown)
+        monitor.handleScreensDidWake()
+        XCTAssertEqual(monitor.proximityState, .unknown, "wake on unknown must remain unknown")
+    }
+
+    // MARK: - Threshold Boundary Edge Cases
+
+    func testRapidOscillationAroundNearThresholdDoesNotRegressState() async throws {
+        mockUnlock.screenLocked = true
+        // Establish near state cleanly.
+        feedRSSI(-55)
+        try await wait()
+        XCTAssertEqual(monitor.proximityState, .near)
+        XCTAssertEqual(mockUnlock.unlockCallCount, 1)
+
+        // Flicker right around the near threshold — within the dead zone boundary, never reaching far.
+        for _ in 0..<15 {
+            monitor.handleRSSI(-68)  // above nearThreshold (stays near)
+            monitor.handleRSSI(-72)  // just below nearThreshold (dead zone)
+        }
+        try await wait(2.0)
+
+        XCTAssertEqual(monitor.proximityState, .near, "flicker around near threshold must not drop state back to unknown")
+        XCTAssertEqual(mockUnlock.unlockCallCount, 1, "must not re-trigger unlock when already near")
+        XCTAssertEqual(mockUnlock.lockCallCount, 0, "flicker above far threshold must not trigger lock")
+    }
+
+    func testAdjacentThresholdsHonorsNearWithoutRaceCondition() async throws {
+        // Collapse the dead zone: near == far + 1. Make sure we still get clean transitions
+        // instead of a race where one RSSI reading triggers both timers.
+        monitor.nearThreshold = -70
+        monitor.farThreshold  = -71
+        mockUnlock.screenLocked = true
+
+        feedRSSI(-60)              // well into near
+        try await wait()
+        XCTAssertEqual(monitor.proximityState, .near)
+        XCTAssertTrue(mockUnlock.didUnlock)
+
+        feedRSSI(-95)              // well into far
+        try await wait()
+        XCTAssertEqual(monitor.proximityState, .far)
+        XCTAssertTrue(mockUnlock.didLock)
+    }
+
     // MARK: - Full End-to-End
 
     func testFullProximityFlow() async throws {
