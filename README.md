@@ -17,7 +17,20 @@ Your iPhone already broadcasts a BLE advertisement that's unique and stable when
 
 ## Install
 
-Download the latest signed build from the [Releases page](https://github.com/raghix123/ProximityUnlockMac/releases) and drag `ProximityUnlock.app` to `/Applications`. Sparkle handles updates from there.
+Download the latest build from the [Releases page](https://github.com/raghix123/ProximityUnlockMac/releases), unzip, and drag `ProximityUnlock.app` to `/Applications`. Sparkle handles updates from there.
+
+### First-launch warning (early builds only)
+
+Until the app is notarized by Apple, macOS Gatekeeper will block the first launch with a "cannot be opened" or "can't be verified" dialog. Fix it one of two ways:
+
+- **Right-click the app → Open → Open anyway** in the confirmation dialog, or
+- Open Terminal and run:
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/ProximityUnlock.app
+  ```
+  then launch normally.
+
+You only need to do this once. Future Sparkle updates won't re-trigger the warning.
 
 ## Build from source
 
