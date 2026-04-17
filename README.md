@@ -11,6 +11,25 @@
 
 A macOS menu-bar app that uses Bluetooth Low Energy to sense your paired iPhone and lock or unlock your Mac automatically — no typing, no tapping, no cloud.
 
+## Install
+
+> Works on macOS 26.2+ with an Apple Silicon Mac (M1 or later). You'll also need an iPhone paired to this Mac at least once over classic Bluetooth.
+
+1. Download the latest `ProximityUnlock-<version>.dmg` from the [**Releases page**](https://github.com/raghix123/ProximityUnlock/releases).
+2. Open the DMG and drag **ProximityUnlock** into the Applications folder.
+3. Launch it. Onboarding walks you through device selection, Accessibility permission, and saving your login password.
+
+### First-launch warning (pre-notarization builds)
+
+Until the app is notarized by Apple, macOS Gatekeeper may block the first launch with a "cannot be opened" or "can't be verified" dialog. Here's how to get past it — no terminal required:
+
+1. Click **Done** or **OK** on the warning dialog.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll down. You'll see "ProximityUnlock was blocked…" with an **Open Anyway** button next to it. Click it.
+4. Confirm with Touch ID or your password.
+
+You only need to do this once. Sparkle updates won't re-trigger the warning.
+
 ## Features
 
 - **Hands-free lock and unlock** — cross your "far" threshold, Mac locks; cross "near," it wakes and types your password.
@@ -29,23 +48,6 @@ Your iPhone broadcasts a BLE advertisement that's unique and stable once paired 
 - Apple Silicon Mac (M1 or later) with Bluetooth Low Energy — Intel Macs aren't supported
 - An iPhone paired with this Mac at least once (classic Bluetooth pairing — so the iPhone is a known device)
 - Accessibility permission (for typing the password at the login window)
-
-## Install
-
-1. Download the latest `ProximityUnlock-<version>.dmg` from the [Releases page](https://github.com/raghix123/ProximityUnlock/releases).
-2. Open the DMG and drag **ProximityUnlock** into the Applications folder.
-3. Launch it. Onboarding walks you through device selection, Accessibility permission, and saving your login password.
-
-### First-launch warning (pre-notarization builds)
-
-Until the app is notarized by Apple, macOS Gatekeeper may block the first launch with a "cannot be opened" or "can't be verified" dialog. Here's how to get past it — no terminal required:
-
-1. Click **Done** or **OK** on the warning dialog.
-2. Open **System Settings → Privacy & Security**.
-3. Scroll down. You'll see "ProximityUnlock was blocked…" with an **Open Anyway** button next to it. Click it.
-4. Confirm with Touch ID or your password.
-
-You only need to do this once. Sparkle updates won't re-trigger the warning.
 
 ## Build from source
 
