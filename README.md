@@ -32,10 +32,6 @@ Your iPhone broadcasts a BLE advertisement that's unique and stable once paired 
 
 ## Install
 
-> **v1.0 is coming soon.** The first public release is pending Apple Developer enrollment. [Watch this repo](https://github.com/raghix123/ProximityUnlockMac/subscription) to be notified, or build from source (see below) in the meantime.
-
-When a release is published:
-
 1. Download the latest `ProximityUnlock-<version>.dmg` from the [Releases page](https://github.com/raghix123/ProximityUnlockMac/releases).
 2. Open the DMG and drag **ProximityUnlock** into the Applications folder.
 3. Launch it. Onboarding walks you through device selection, Accessibility permission, and saving your login password.
