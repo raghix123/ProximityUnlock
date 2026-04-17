@@ -106,16 +106,52 @@ fi
 
 echo "▶ Building DMG..."
 DMG_STAGING="$REPO_ROOT/build/dmg-staging"
-rm -rf "$DMG_STAGING"
+DMG_TMP="$REPO_ROOT/build/ProximityUnlock-tmp.dmg"
+DMG_MOUNT="/Volumes/ProximityUnlock"
+rm -rf "$DMG_STAGING" "$DMG_TMP" "$DMG_PATH"
 mkdir -p "$DMG_STAGING"
 cp -R "$APP_PATH" "$DMG_STAGING/"
 ln -s /Applications "$DMG_STAGING/Applications"
-rm -f "$DMG_PATH"
+
+# Step 1 — build a read-write DMG we can decorate.
 hdiutil create \
     -volname "ProximityUnlock" \
     -srcfolder "$DMG_STAGING" \
-    -ov -format UDZO \
-    "$DMG_PATH"
+    -format UDRW \
+    -ov \
+    "$DMG_TMP"
+
+# Step 2 — mount, drive Finder via AppleScript to place icons + size the window,
+# then detach. Requires Automation permission for the shell (Terminal prompts once).
+hdiutil attach "$DMG_TMP" -noverify -noautoopen -mountpoint "$DMG_MOUNT"
+
+osascript <<OSA
+tell application "Finder"
+    tell disk "ProximityUnlock"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set sidebar width of container window to 0
+        set the bounds of container window to {400, 100, 940, 480}
+        set viewOptions to the icon view options of container window
+        set arrangement of viewOptions to not arranged
+        set icon size of viewOptions to 128
+        set position of item "ProximityUnlock.app" of container window to {140, 180}
+        set position of item "Applications" of container window to {400, 180}
+        close
+        open
+        update without registering applications
+        delay 2
+    end tell
+end tell
+OSA
+
+hdiutil detach "$DMG_MOUNT"
+
+# Step 3 — convert to compressed read-only for distribution.
+hdiutil convert "$DMG_TMP" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH"
+rm -f "$DMG_TMP"
 rm -rf "$DMG_STAGING"
 
 if [[ -z "${SKIP_NOTARIZE:-}" ]]; then
