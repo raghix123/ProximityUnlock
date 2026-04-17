@@ -24,12 +24,18 @@ class ProximityMonitor: ObservableObject {
     @Published var isEnabled: Bool = true {
         didSet { UserDefaults.standard.set(isEnabled, forKey: "isEnabled") }
     }
-    @Published var isPaused: Bool = false
-    @Published var nearThreshold: Int = -75 {
-        didSet { UserDefaults.standard.set(nearThreshold, forKey: "nearThreshold") }
+    @Published var lockWhenFar: Bool = true {
+        didSet { UserDefaults.standard.set(lockWhenFar, forKey: "lockWhenFar") }
     }
-    @Published var farThreshold: Int = -90 {
-        didSet { UserDefaults.standard.set(farThreshold, forKey: "farThreshold") }
+    @Published var unlockWhenNear: Bool = true {
+        didSet { UserDefaults.standard.set(unlockWhenNear, forKey: "unlockWhenNear") }
+    }
+    @Published var isPaused: Bool = false
+    @Published var nearThreshold: Int = -65 {
+        didSet { debouncedSaveThresholds() }
+    }
+    @Published var farThreshold: Int = -80 {
+        didSet { debouncedSaveThresholds() }
     }
     @Published var discoveredDevices: [DiscoveredDevice] = []
     @Published var selectedDeviceName: String? {
@@ -50,6 +56,18 @@ class ProximityMonitor: ObservableObject {
     private var farTimer: Timer?
     private var rssiBuffer: [Int] = []
     private let rssiBufferSize = 5
+    private var thresholdSaveWork: DispatchWorkItem?
+
+    private func debouncedSaveThresholds() {
+        thresholdSaveWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            UserDefaults.standard.set(self.nearThreshold, forKey: "nearThreshold")
+            UserDefaults.standard.set(self.farThreshold, forKey: "farThreshold")
+        }
+        thresholdSaveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
 
     var statusDescription: String {
         if !isEnabled { return "ProximityUnlock: Disabled" }
@@ -88,21 +106,10 @@ class ProximityMonitor: ObservableObject {
         // Sync the persisted selection into the BLE manager (didSet doesn't fire in init).
         ble.selectedDeviceName = selectedDeviceName
         self.bleManager = ble
-
-        // Re-unlock when screen locks while phone is already nearby
-        // (e.g., idle auto-lock while user is sitting at desk with iPhone in pocket).
-        DistributedNotificationCenter.default().addObserver(
-            forName: NSNotification.Name("com.apple.screenIsLocked"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, self.isEnabled, !self.isPaused, self.isPhoneDetected else { return }
-                guard self.proximityState == .near else { return }
-                Log.proximity.info("Screen locked while phone was near — re-unlocking")
-                self.unlockManager.unlockScreen()
-            }
-        }
+        // Note: we intentionally do NOT re-unlock when the screen locks while the phone
+        // is already nearby. If the user manually locked (button, lid, idle timeout),
+        // the Mac should stay locked until the phone goes far and comes back, which
+        // triggers the normal transitionToFar → transitionToNear unlock cycle.
     }
 
     /// Testable designated init — all dependencies injectable.
@@ -126,6 +133,12 @@ class ProximityMonitor: ObservableObject {
             farThreshold = UserDefaults.standard.integer(forKey: "farThreshold")
         }
         selectedDeviceName = UserDefaults.standard.string(forKey: "selectedDeviceName")
+        if UserDefaults.standard.object(forKey: "lockWhenFar") != nil {
+            lockWhenFar = UserDefaults.standard.bool(forKey: "lockWhenFar")
+        }
+        if UserDefaults.standard.object(forKey: "unlockWhenNear") != nil {
+            unlockWhenNear = UserDefaults.standard.bool(forKey: "unlockWhenNear")
+        }
 
         // Validate threshold sanity: near must be a stronger signal (less negative) than far.
         if nearThreshold <= farThreshold {
@@ -146,12 +159,21 @@ class ProximityMonitor: ObservableObject {
         if rssiBuffer.count > rssiBufferSize { rssiBuffer.removeFirst() }
         let smoothedRSSI = rssiBuffer.reduce(0, +) / rssiBuffer.count
 
+        Log.proximity.debug("""
+            RSSI raw=\(newRSSI, privacy: .public) \
+            smoothed=\(smoothedRSSI, privacy: .public) \
+            near≥\(self.nearThreshold, privacy: .public) \
+            far≤\(self.farThreshold, privacy: .public) \
+            state=\(self.proximityState.description, privacy: .public) \
+            bufferSize=\(self.rssiBuffer.count, privacy: .public)
+            """)
+
         // Raw RSSI for near (unlock): fast response when walking toward Mac.
         if newRSSI >= nearThreshold {
             farTimer?.invalidate()
             farTimer = nil
             if proximityState != .near && nearTimer == nil {
-                Log.proximity.debug("Raw RSSI \(newRSSI, privacy: .public) crossed near threshold \(self.nearThreshold, privacy: .public)")
+                Log.proximity.info("▶ Near timer started (raw \(newRSSI, privacy: .public) ≥ \(self.nearThreshold, privacy: .public))")
                 nearTimer = Timer.scheduledTimer(withTimeInterval: hysteresisSeconds, repeats: false) { [weak self] _ in
                     Task { @MainActor [weak self] in self?.transitionToNear() }
                 }
@@ -161,12 +183,15 @@ class ProximityMonitor: ObservableObject {
             nearTimer?.invalidate()
             nearTimer = nil
             if proximityState != .far && farTimer == nil {
-                Log.proximity.debug("Smoothed RSSI \(smoothedRSSI, privacy: .public) crossed far threshold \(self.farThreshold, privacy: .public)")
+                Log.proximity.info("▶ Far timer started (smoothed \(smoothedRSSI, privacy: .public) ≤ \(self.farThreshold, privacy: .public))")
                 farTimer = Timer.scheduledTimer(withTimeInterval: hysteresisSeconds, repeats: false) { [weak self] _ in
                     Task { @MainActor [weak self] in self?.transitionToFar() }
                 }
             }
         } else {
+            if nearTimer != nil || farTimer != nil {
+                Log.proximity.debug("Dead zone (smoothed \(smoothedRSSI, privacy: .public)) — cancelling pending timers")
+            }
             cancelPendingTimers()
         }
     }
@@ -176,21 +201,45 @@ class ProximityMonitor: ObservableObject {
     func transitionToNear() {
         nearTimer = nil
         rssiBuffer.removeAll()
-        Log.proximity.info("Transitioning to near")
-        guard isEnabled, !isPaused else { return }
+        Log.proximity.info("Transitioning to near (enabled=\(self.isEnabled, privacy: .public) paused=\(self.isPaused, privacy: .public) unlockWhenNear=\(self.unlockWhenNear, privacy: .public))")
+        guard isEnabled, !isPaused else {
+            Log.proximity.info("↩ Near transition blocked (disabled or paused)")
+            return
+        }
         proximityState = .near
-        if unlockManager.isScreenLocked() {
+        let locked = unlockManager.isScreenLocked()
+        Log.proximity.info("Screen locked=\(locked, privacy: .public) unlockWhenNear=\(self.unlockWhenNear, privacy: .public)")
+        if unlockWhenNear, locked {
+            Log.proximity.info("🔓 Unlocking screen")
             unlockManager.unlockScreen()
+        } else if !unlockWhenNear {
+            Log.proximity.info("↩ Unlock skipped (unlockWhenNear=false)")
         }
     }
 
     func transitionToFar() {
         farTimer = nil
         rssiBuffer.removeAll()
-        Log.proximity.info("Transitioning to far")
-        guard isEnabled, !isPaused else { return }
+        Log.proximity.info("Transitioning to far (enabled=\(self.isEnabled, privacy: .public) paused=\(self.isPaused, privacy: .public) lockWhenFar=\(self.lockWhenFar, privacy: .public))")
+        guard isEnabled, !isPaused else {
+            Log.proximity.info("↩ Far transition blocked (disabled or paused)")
+            return
+        }
         proximityState = .far
-        unlockManager.lockScreen()
+        if lockWhenFar {
+            Log.proximity.info("🔒 Locking screen")
+            unlockManager.lockScreen()
+        } else {
+            Log.proximity.info("↩ Lock skipped (lockWhenFar=false)")
+        }
+    }
+
+    func handleScreensDidWake() {
+        Log.proximity.info("Screens woke — resetting proximity state to allow lid-open unlock")
+        if proximityState == .near {
+            proximityState = .unknown
+            rssiBuffer.removeAll()
+        }
     }
 
     func pause() {
@@ -203,7 +252,7 @@ class ProximityMonitor: ObservableObject {
         Log.proximity.info("Monitoring resumed")
         isPaused = false
     }
-
+    
     private func cancelPendingTimers() {
         nearTimer?.invalidate()
         nearTimer = nil

@@ -20,10 +20,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.ui.info("App launched")
-        NSApp.setActivationPolicy(.accessory)
 
         // Show onboarding on first launch
         if !hasCompletedOnboarding {
+            // Stay .regular so the onboarding window can come to the front
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.showOnboarding()
             }
@@ -41,6 +41,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(sessionDidBecomeActive),
             name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(screensDidWake),
+            name: NSWorkspace.screensDidWakeNotification, object: nil)
     }
 
     @objc private func sessionDidResignActive(_ notification: Notification) {
@@ -51,6 +54,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func sessionDidBecomeActive(_ notification: Notification) {
         Log.ui.info("Session became active")
         proximityMonitor.resume()
+    }
+
+    @objc private func screensDidWake(_ notification: Notification) {
+        Log.ui.info("Screens woke")
+        proximityMonitor.handleScreensDidWake()
     }
 
     private func setupStatusBar() {
@@ -104,8 +112,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.isReleasedWhenClosed = false
             settingsWindow = window
         }
-        NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func showOnboardingFromMenu() {
+        Log.ui.info("Showing onboarding from menu")
+        onboardingWindow = nil  // force fresh window so new size is applied
+        showOnboarding()
     }
 
     private func showOnboarding() {
@@ -115,7 +130,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.completeOnboarding()
             }
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 500, height: 480),
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 600),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
@@ -123,11 +138,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "Welcome to ProximityUnlock"
             window.contentView = NSHostingView(rootView: view)
             window.center()
+            window.level = .floating
             window.isReleasedWhenClosed = false
             onboardingWindow = window
         }
-        NSApp.activate(ignoringOtherApps: true)
         onboardingWindow?.makeKeyAndOrderFront(nil)
+        onboardingWindow?.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func completeOnboarding() {
@@ -164,6 +181,7 @@ extension AppDelegate: NSMenuDelegate {
         let toggleTitle = proximityMonitor.isEnabled ? "Disable" : "Enable"
         menu.addItem(NSMenuItem(title: toggleTitle, action: #selector(toggleEnabled), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Setup Guide...", action: #selector(showOnboardingFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(
             title: "Quit ProximityUnlock",

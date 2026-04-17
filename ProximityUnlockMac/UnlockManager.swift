@@ -59,6 +59,10 @@ class UnlockManager {
 
     func unlockScreen() {
         Log.unlock.info("Unlocking screen")
+        guard isLidOpen() else {
+            Log.unlock.info("Lid is closed — skipping unlock")
+            return
+        }
         wakeDisplay()
         guard let password = KeychainHelper.shared.getPassword() else {
             Log.unlock.warning("No password stored — cannot unlock")
@@ -177,6 +181,16 @@ class UnlockManager {
         returnDown?.post(tap: .cghidEventTap)
         let returnUp = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false)
         returnUp?.post(tap: .cghidEventTap)
+    }
+
+    private func isLidOpen() -> Bool {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+        guard service != IO_OBJECT_NULL else { return true }
+        defer { IOObjectRelease(service) }
+        guard let cfProp = IORegistryEntryCreateCFProperty(service, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0) else {
+            return true // desktop Mac, no clamshell
+        }
+        return !(cfProp.takeRetainedValue() as? Bool ?? false)
     }
 
     private func isAccessibilityGranted() -> Bool {

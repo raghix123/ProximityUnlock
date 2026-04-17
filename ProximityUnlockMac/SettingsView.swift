@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var showPasswordEntry: Bool = false
     @State private var passwordMismatch: Bool = false
     @State private var isAccessibilityGranted: Bool = false
+    @State private var showResetConfirm = false
 
     var body: some View {
         Form {
@@ -50,7 +51,7 @@ struct SettingsView: View {
                     }
                 }
                 if monitor.isPhoneDetected {
-                    LabeledContent("Signal strength", value: "\(monitor.rssi) dBm")
+                    LabeledContent("Signal strength", value: RSSIDistance.label(rssi: monitor.rssi))
                     LabeledContent("Proximity") {
                         Text(proximityLabel)
                             .foregroundStyle(proximityColor)
@@ -61,33 +62,35 @@ struct SettingsView: View {
             // MARK: General
             Section("General") {
                 Toggle("Enable Proximity Unlock", isOn: $monitor.isEnabled)
+                Toggle("Lock when iPhone leaves", isOn: $monitor.lockWhenFar)
+                Toggle("Unlock when iPhone returns", isOn: $monitor.unlockWhenNear)
             }
 
             // MARK: Sensitivity
             Section("Sensitivity") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Unlock when closer than \(monitor.nearThreshold) dBm")
+                    Text("Unlock when closer than \(RSSIDistance.label(rssi: monitor.nearThreshold))")
                     Slider(
                         value: Binding(
                             get: { Double(monitor.nearThreshold) },
                             set: { monitor.nearThreshold = Int($0) }
                         ),
-                        in: -90...(-50),
+                        in: -100...(-50),
                         step: 1
                     )
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Lock when farther than \(monitor.farThreshold) dBm")
+                    Text("Lock when farther than \(RSSIDistance.label(rssi: monitor.farThreshold))")
                     Slider(
                         value: Binding(
                             get: { Double(monitor.farThreshold) },
                             set: { monitor.farThreshold = Int($0) }
                         ),
-                        in: -100...(-60),
+                        in: -100...(-50),
                         step: 1
                     )
                 }
-                Text("-50 dBm ≈ very close (< 1 m)   ·   -90 dBm ≈ far (> 8 m)")
+                Text("-50 dBm ≈ very close (< 1 m)   ·   -100 dBm ≈ far (> 8 m)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -158,9 +161,41 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                Button("Reset All Data & Quit", role: .destructive) {
+                    showResetConfirm = true
+                }
+            } footer: {
+                Text("Deletes all settings, your saved password, and device selection. The app will quit and treat the next launch as a fresh install.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("About") {
+                LabeledContent("Made by") {
+                    Link("Raghav Bodicherla", destination: URL(string: "https://github.com/raghix123")!)
+                }
+                LabeledContent("Project") {
+                    Link("github.com/raghix123/ProximityUnlockMac",
+                         destination: URL(string: "https://github.com/raghix123/ProximityUnlockMac")!)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("This app is open source. The code can be modified and used however you please — just give me credit.")
+                    Text("Icon made by Freepik from www.flaticon.com")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .alert("Reset ProximityUnlock?", isPresented: $showResetConfirm) {
+            Button("Reset & Quit", role: .destructive) { resetAndQuit() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete all settings and your saved password. The app will quit.")
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 620)
+        .frame(width: 440, height: 780)
         .onAppear { refresh() }
     }
 
@@ -198,6 +233,14 @@ struct SettingsView: View {
         confirmPassword = ""
         passwordMismatch = false
         showPasswordEntry = false
+    }
+
+    private func resetAndQuit() {
+        KeychainHelper.shared.deletePassword()
+        if let id = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: id)
+        }
+        NSApp.terminate(nil)
     }
 
     private func requestAccessibility() {
