@@ -57,6 +57,7 @@ final class UpdaterController: NSObject, ObservableObject {
     }
 
     func checkForUpdates() {
+        TelemetryService.updateCheckTriggered(manual: true)
         controller.checkForUpdates(nil)
     }
 }

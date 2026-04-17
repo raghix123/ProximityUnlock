@@ -14,8 +14,30 @@ struct SettingsView: View {
     @State private var showResetConfirm = false
 
     var body: some View {
+        TabView {
+            generalTab
+                .tabItem { Label("General", systemImage: "gear") }
+            securityTab
+                .tabItem { Label("Security", systemImage: "lock.fill") }
+            updatesTab
+                .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
+            aboutTab
+                .tabItem { Label("About", systemImage: "info.circle") }
+        }
+        .alert("Reset ProximityUnlock?", isPresented: $showResetConfirm) {
+            Button("Reset & Quit", role: .destructive) { resetAndQuit() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete all settings and your saved password. The app will quit.")
+        }
+        .frame(width: 460, height: 520)
+        .onAppear { refresh() }
+    }
+
+    // MARK: - Tabs
+
+    @ViewBuilder private var generalTab: some View {
         Form {
-            // MARK: Device Selection
             Section("Your iPhone") {
                 if monitor.discoveredDevices.isEmpty {
                     HStack(spacing: 8) {
@@ -40,7 +62,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // MARK: Status
             Section("Status") {
                 LabeledContent("Device") {
                     if let name = monitor.selectedDeviceName {
@@ -60,14 +81,12 @@ struct SettingsView: View {
                 }
             }
 
-            // MARK: General
             Section("General") {
                 Toggle("Enable Proximity Unlock", isOn: $monitor.isEnabled)
                 Toggle("Lock when iPhone leaves", isOn: $monitor.lockWhenFar)
                 Toggle("Unlock when iPhone returns", isOn: $monitor.unlockWhenNear)
             }
 
-            // MARK: Sensitivity
             Section("Sensitivity") {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Unlock when closer than \(RSSIDistance.label(rssi: monitor.nearThreshold))")
@@ -95,8 +114,12 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+        .formStyle(.grouped)
+    }
 
-            // MARK: Password
+    @ViewBuilder private var securityTab: some View {
+        Form {
             Section("Unlock Password") {
                 if hasPassword {
                     Label("Password saved (encrypted)", systemImage: "checkmark.seal.fill")
@@ -136,7 +159,6 @@ struct SettingsView: View {
                 }
             }
 
-            // MARK: Permissions
             Section("Permissions") {
                 HStack {
                     Label(
@@ -163,7 +185,21 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // MARK: Updates
+            Section {
+                Button("Reset All Data & Quit", role: .destructive) {
+                    showResetConfirm = true
+                }
+            } footer: {
+                Text("Deletes all settings, your saved password, and device selection. The app will quit and treat the next launch as a fresh install.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    @ViewBuilder private var updatesTab: some View {
+        Form {
             Section("Updates") {
                 Toggle("Automatically check for updates", isOn: $updater.automaticUpdateChecks)
 
@@ -188,17 +224,12 @@ struct SettingsView: View {
                      destination: URL(string: "https://github.com/raghix123/ProximityUnlockMac/releases")!)
                     .font(.caption)
             }
+        }
+        .formStyle(.grouped)
+    }
 
-            Section {
-                Button("Reset All Data & Quit", role: .destructive) {
-                    showResetConfirm = true
-                }
-            } footer: {
-                Text("Deletes all settings, your saved password, and device selection. The app will quit and treat the next launch as a fresh install.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
+    @ViewBuilder private var aboutTab: some View {
+        Form {
             Section("About") {
                 LabeledContent("Made by") {
                     Link("Raghav Bodicherla", destination: URL(string: "https://github.com/raghix123")!)
@@ -214,16 +245,18 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-        }
-        .alert("Reset ProximityUnlock?", isPresented: $showResetConfirm) {
-            Button("Reset & Quit", role: .destructive) { resetAndQuit() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will delete all settings and your saved password. The app will quit.")
+
+            Section("Privacy") {
+                Toggle("Share anonymous usage data", isOn: Binding(
+                    get: { TelemetryService.isEnabled },
+                    set: { TelemetryService.setEnabled($0) }
+                ))
+                Text("Sends anonymous events (app launches, lock/unlock counts) to help improve the app. No device names, passwords, or personal information are ever collected.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 940)
-        .onAppear { refresh() }
     }
 
     // MARK: - Helpers

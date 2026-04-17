@@ -21,6 +21,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.ui.info("App launched")
+        TelemetryService.start()
+        TelemetryService.appLaunched()
 
         // Show onboarding on first launch
         if !hasCompletedOnboarding {
@@ -104,7 +106,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .environmentObject(proximityMonitor)
                 .environmentObject(updaterController)
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 440, height: 940),
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 520),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false

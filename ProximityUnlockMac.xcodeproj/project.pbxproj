@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		AA00BB11CC22DD33EE44FF55 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB11CC22DD33EE44FF66 /* Sparkle */; };
+		TD00BB11CC22DD33EE44FF55 /* TelemetryClient in Frameworks */ = {isa = PBXBuildFile; productRef = TD00BB11CC22DD33EE44FF66 /* TelemetryClient */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,18 +48,8 @@
 		};
 		A00341622F3C036300FCE096 /* ProximityUnlockMac */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				AA00BB11CC22DD33EE44FF88 /* PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet */,
-			);
 			path = ProximityUnlockMac;
 			sourceTree = "<group>";
-		};
-		AA00BB11CC22DD33EE44FF88 /* PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = A003415E2F3C036300FCE096 /* Resources */;
-			membershipExceptions = (
-				Info.plist,
-			);
 		};
 		A3B013A144774FC2BBF418B3 /* ProximityUnlockiOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -85,6 +76,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA00BB11CC22DD33EE44FF55 /* Sparkle in Frameworks */,
+				TD00BB11CC22DD33EE44FF55 /* TelemetryClient in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -196,6 +188,7 @@
 			name = ProximityUnlockMac;
 			packageProductDependencies = (
 				AA00BB11CC22DD33EE44FF66 /* Sparkle */,
+				TD00BB11CC22DD33EE44FF66 /* TelemetryClient */,
 			);
 			productName = ProximityUnlockMac;
 			productReference = A00341602F3C036300FCE096 /* ProximityUnlockMac.app */;
@@ -250,6 +243,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				AA00BB11CC22DD33EE44FF77 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				TD00BB11CC22DD33EE44FF77 /* XCRemoteSwiftPackageReference "SwiftSDK" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A00341612F3C036300FCE096 /* Products */;
@@ -705,6 +699,14 @@
 				minimumVersion = 2.6.0;
 			};
 		};
+		TD00BB11CC22DD33EE44FF77 /* XCRemoteSwiftPackageReference "SwiftSDK" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/TelemetryDeck/SwiftSDK";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -712,6 +714,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA00BB11CC22DD33EE44FF77 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		TD00BB11CC22DD33EE44FF66 /* TelemetryClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = TD00BB11CC22DD33EE44FF77 /* XCRemoteSwiftPackageReference "SwiftSDK" */;
+			productName = TelemetryClient;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

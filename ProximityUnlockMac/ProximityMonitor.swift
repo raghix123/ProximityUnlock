@@ -42,6 +42,7 @@ class ProximityMonitor: ObservableObject {
         didSet {
             UserDefaults.standard.set(selectedDeviceName, forKey: "selectedDeviceName")
             bleManager?.selectedDeviceName = selectedDeviceName
+            if selectedDeviceName != nil { TelemetryService.deviceSelected() }
         }
     }
 
@@ -212,6 +213,7 @@ class ProximityMonitor: ObservableObject {
         if unlockWhenNear, locked {
             Log.proximity.info("🔓 Unlocking screen")
             unlockManager.unlockScreen()
+            TelemetryService.proximityUnlocked()
         } else if !unlockWhenNear {
             Log.proximity.info("↩ Unlock skipped (unlockWhenNear=false)")
         }
@@ -229,6 +231,7 @@ class ProximityMonitor: ObservableObject {
         if lockWhenFar {
             Log.proximity.info("🔒 Locking screen")
             unlockManager.lockScreen()
+            TelemetryService.proximityLocked()
         } else {
             Log.proximity.info("↩ Lock skipped (lockWhenFar=false)")
         }
